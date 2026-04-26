@@ -1,0 +1,6 @@
+# Never upload sensitive data to GitHub!
+data/*.csv
+data/*.parquet
+data/*.json
+.env
+__pycache__/
