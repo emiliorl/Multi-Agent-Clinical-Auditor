@@ -1,6 +1,6 @@
 import os
 from crewai import Agent, LLM
-from src.tools import EHRPatternScanner
+from src.tools import EHRPatternScanner, MedicalKnowledgeLookup
 
 # 1. Fetch API Key
 api_key = os.getenv("GEMINI_API_KEY")
@@ -12,8 +12,7 @@ clinical_llm = LLM(
     temperature=0.1
 )
 
-# 3. Define the Agent
-# We use the instance of our new tool class here
+# Agent A
 diagnostician = Agent(
     role='Lead Clinical Data Miner',
     goal='Identify patient trajectories and sepsis triggers from raw EHR data',
@@ -22,4 +21,20 @@ diagnostician = Agent(
     llm=clinical_llm,
     verbose=True,
     allow_delegation=False
+)
+
+# Agent B 
+auditor = Agent(
+    role='Clinical Audit Specialist',
+    goal='Ensure 100% grounding of clinical findings against the Knowledge Graph.',
+    backstory=(
+        "You are a regulatory compliance agent. You do not offer opinions; you only "
+        "verify links between raw data and the Knowledge Graph. You are rewarded "
+        "for finding cases where Agent A's codes do not match the KG."
+    ),
+    tools=[MedicalKnowledgeLookup()],
+    llm=clinical_llm, 
+    max_iter=15,       # Allow enough turns to call the tool for multiple codes
+    verbose=True,
+    allow_delegation=False # Keep it focused on the audit task
 )
