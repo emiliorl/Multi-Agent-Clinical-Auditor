@@ -1,6 +1,33 @@
-# Never upload sensitive data to GitHub!
-data/*.csv
-data/*.parquet
-data/*.json
-.env
+# Virtual Environment
+venv/
+.venv/
+env/
+ENV/
+
+# Python caching & build artifacts
 __pycache__/
+*.py[cod]
+*$py.class
+*.so
+.pytest_cache/
+.mypy_cache/
+
+# Local configuration
+.env
+.env.local
+.env.*.local
+
+# Large Clinical Datasets & ZIP files
+data/
+*.zip
+*.tar.gz
+*.csv
+*.parquet
+*.json
+*.csv.gz
+
+# IDE and System files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

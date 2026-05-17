@@ -1,6 +1,10 @@
 import os
+from dotenv import load_dotenv
 from crewai import Agent, LLM
 from src.tools import EHRPatternScanner
+
+# Load environment variables from .env
+load_dotenv()
 
 # 1. Fetch API Key
 api_key = os.getenv("GEMINI_API_KEY")

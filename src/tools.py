@@ -10,8 +10,9 @@ class EHRPatternScanner(BaseTool):
     )
 
     def _run(self, patient_id: str) -> str:
-        # Path to your Drive folder
-        path = "/content/drive/MyDrive/clinical_data_storage/mimic-iv-clinical-database-demo-2.2/hosp/diagnoses_icd.csv.gz"
+        import os
+        # Path to data (configurable via environment variable, defaults to unzipped mimic-iv demo folder)
+        path = os.getenv("CLINICAL_DATA_PATH", "./data/mimic-iv-clinical-database-demo-2.2/hosp/diagnoses_icd.csv.gz")
         
         try:
             # Sequence Mining: Chunked reading for memory efficiency
