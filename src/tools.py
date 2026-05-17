@@ -1,9 +1,8 @@
+import json
+import os
 import pandas as pd
 from crewai.tools import BaseTool
 from pydantic import Field
-import json
-import os
-from crewai.tools import BaseTool
 
 class EHRPatternScanner(BaseTool):
     name: str = "EHRPatternScanner"
@@ -13,7 +12,6 @@ class EHRPatternScanner(BaseTool):
     )
 
     def _run(self, patient_id: str) -> str:
-        import os
         # Path to data (configurable via environment variable, defaults to unzipped mimic-iv demo folder)
         path = os.getenv("CLINICAL_DATA_PATH", "./data/mimic-iv-clinical-database-demo-2.2/hosp/diagnoses_icd.csv.gz")
         
