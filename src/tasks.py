@@ -20,16 +20,23 @@ def get_mining_task(agent, patient_id: str) -> Task:
 def get_audit_task(agent, patient_id: str) -> Task:
     return Task(
         description=(
-            f"1. Use the EHRPatternScanner tool to retrieve the trajectory for patient '{patient_id}'.\n"
-            "2. For EVERY unique ICD code found, you MUST call the medical_knowledge_lookup tool.\n"
-            "3. YOU ARE FORBIDDEN from using your own internal knowledge to define codes.\n"
-            "4. Create a 'Grounding Table': | ICD Code | Condition | KG Verification Token |\n"
-            "5. Compare observations against the 'audit_protocol' returned by the tool.\n"
-            "6. If a 'Verification Token' is missing for any code, flag the audit as 'UNVERIFIED'."
+            f"Perform a Clinical Chain-of-Thought (CCoT) audit for patient '{patient_id}'.\n\n"
+            f"1. Use EHRPatternScanner to retrieve the trajectory for patient '{patient_id}'.\n"
+            "2. Parse the returned JSON to extract every unique ICD code and its icd_version.\n"
+            "3. For EVERY code, call medical_knowledge_lookup with this exact JSON payload:\n"
+            '   {"icd_code": "<code>", "icd_version": "<9 or 10>", "patient_id": "<id>"}\n'
+            "4. After each lookup, explicitly state:\n"
+            "   'Stage X matched at similarity Y — Verification Token: <token>'\n"
+            "5. Build a Grounding Table:\n"
+            "   | ICD Code | Version | Stage | Similarity | Verification Token | Status |\n"
+            "6. Codes with status=UNVERIFIED must appear in a separate UNVERIFIED section.\n"
+            "7. YOU ARE FORBIDDEN from reasoning about or citing any unverified code.\n"
+            "8. YOU ARE FORBIDDEN from using your own training knowledge to define codes."
         ),
         expected_output=(
-            "A verified audit report where every clinical claim is linked to a unique "
-            "KG Verification Token."
+            "A CCoT audit report containing: (1) a Grounding Table mapping every ICD code to its "
+            "stage, similarity score, and Verification Token; (2) an UNVERIFIED section listing "
+            "any codes that could not be grounded; (3) a summary of grounding coverage."
         ),
         agent=agent,
     )

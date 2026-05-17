@@ -1,3 +1,7 @@
 crewai
 pandas
 python-dotenv
+requests
+tenacity
+sentence-transformers
+scikit-learn

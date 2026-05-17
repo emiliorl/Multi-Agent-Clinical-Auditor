@@ -2,7 +2,11 @@ import json
 import os
 import pandas as pd
 from crewai.tools import BaseTool
+from sentence_transformers import SentenceTransformer
+from sklearn.metrics.pairwise import cosine_similarity
 from src.models import Admission, IcdEntry, PatientTrajectory
+from src.icd_client import ICDApiClient
+from src.grounding_logger import log_grounding_attempt
 from src.logger import get_logger
 
 logger = get_logger(__name__)
@@ -149,31 +153,158 @@ class EHRPatternScanner(BaseTool):
             })
 
 
+_SIMILARITY_THRESHOLD = 0.85
+_icd_client = ICDApiClient()
+_embedder: "SentenceTransformer | None" = None
+
+
+def _get_embedder() -> "SentenceTransformer":
+    global _embedder
+    if _embedder is None:
+        _embedder = SentenceTransformer("all-MiniLM-L6-v2")
+    return _embedder
+
+
+def _cosine(a: list[float], b: list[float]) -> float:
+    import numpy as np
+    va = np.array(a).reshape(1, -1)
+    vb = np.array(b).reshape(1, -1)
+    return float(cosine_similarity(va, vb)[0][0])
+
+
 class MedicalKnowledgeLookup(BaseTool):
     name: str = "medical_knowledge_lookup"
-    description: str = "MANDATORY: Use this to fetch the Verification Token for an ICD code."
+    description: str = (
+        "MANDATORY: Ground an ICD code against the authoritative knowledge base. "
+        "Input format: JSON string with fields 'icd_code', 'icd_version' (9 or 10), "
+        "and 'patient_id'. Returns a Verification Token for every matched code."
+    )
 
-    def _run(self, icd_code: str) -> str:
-        clean_code = str(icd_code).strip().replace("'", "").replace('"', "")
-
-        if not clean_code.startswith("ICD_9_"):
-            key = f"ICD_9_{clean_code}"
-        else:
-            key = clean_code
-
-        kb_path = "data/kb_sepsis.json"
+    def _run(self, input_str: str) -> str:
+        # ── parse input ──────────────────────────────────────────────────────
         try:
-            with open(kb_path, "r") as f:
-                kb = json.load(f)
+            params = json.loads(input_str)
+            icd_code = str(params["icd_code"]).strip()
+            icd_version = str(params["icd_version"]).strip()
+            patient_id = str(params.get("patient_id", "unknown"))
+        except Exception:
+            # fallback: treat bare string as ICD code (version unknown → try both)
+            icd_code = str(input_str).strip().replace("'", "").replace('"', "")
+            icd_version = "10"
+            patient_id = "unknown"
 
-            node = kb["nodes"].get(key)
-            if node:
+        logger.info("Grounding ICD-%s code %s for patient %s", icd_version, icd_code, patient_id)
+
+        # ════════════════════════════════════════════════════════════════════
+        # Stage 1 — Exact API match
+        # ════════════════════════════════════════════════════════════════════
+        exact = _icd_client.lookup(icd_code, icd_version)
+        if exact:
+            log_grounding_attempt(
+                patient_id=patient_id, icd_code=icd_code, icd_version=icd_version,
+                stage_matched=1, similarity_score=None,
+                verification_token=exact["token"],
+            )
+            return json.dumps({
+                "stage": 1, "icd_code": icd_code, "icd_version": icd_version,
+                "title": exact.get("title"), "similarity_score": None,
+                "verification_token": exact["token"], "status": "VERIFIED",
+            })
+
+        # ════════════════════════════════════════════════════════════════════
+        # Stage 2 — Similarity match (τ > 0.85) via sentence-transformers
+        # ════════════════════════════════════════════════════════════════════
+        candidates = _icd_client.search_concept(icd_code, icd_version, top_k=5)
+        if candidates:
+            embedder = _get_embedder()
+            query_vec = embedder.encode(icd_code).tolist()
+            best_score = 0.0
+            best_candidate = None
+            for cand in candidates:
+                title = cand.get("title") or cand.get("code", "")
+                cand_vec = embedder.encode(title).tolist()
+                score = _cosine(query_vec, cand_vec)
+                if score > best_score:
+                    best_score = score
+                    best_candidate = cand
+
+            if best_score > _SIMILARITY_THRESHOLD and best_candidate:
+                log_grounding_attempt(
+                    patient_id=patient_id, icd_code=icd_code, icd_version=icd_version,
+                    stage_matched=2, similarity_score=best_score,
+                    verification_token=best_candidate["token"],
+                )
                 return json.dumps({
-                    "condition": node["label"],
-                    "token": node["verification_token"],
-                    "protocol": node["relationships"],
+                    "stage": 2, "icd_code": icd_code, "icd_version": icd_version,
+                    "title": best_candidate.get("title"),
+                    "matched_code": best_candidate.get("code"),
+                    "similarity_score": round(best_score, 4),
+                    "verification_token": best_candidate["token"], "status": "VERIFIED",
                 })
-            return f"CRITICAL ERROR: Code {clean_code} NOT found in KG. Audit blocked."
+
+        # ════════════════════════════════════════════════════════════════════
+        # Stage 3 — LLM fallback, then verify against API
+        # ════════════════════════════════════════════════════════════════════
+        try:
+            import google.generativeai as genai
+            import time
+            genai.configure(api_key=os.getenv("GEMINI_API_KEY", ""))
+            model = genai.GenerativeModel("gemini-2.0-flash-lite")
+            prompt = (
+                f"You are a clinical coding expert. Provide the standard medical concept name "
+                f"for ICD-{icd_version} code '{icd_code}'. Reply with only the concept name, "
+                f"nothing else."
+            )
+            
+            concept_name = None
+            max_llm_retries = 3
+            llm_retry_delay = 5  # seconds
+            
+            for llm_attempt in range(1, max_llm_retries + 1):
+                try:
+                    concept_name = model.generate_content(prompt).text.strip()
+                    break
+                except Exception as exc:
+                    exc_str = str(exc)
+                    if "429" in exc_str or "RESOURCE_EXHAUSTED" in exc_str:
+                        logger.warning(
+                            "Stage 3 LLM rate limit (429) hit for %s. Waiting %d seconds before retry (Attempt %d/%d)...",
+                            icd_code, llm_retry_delay, llm_attempt, max_llm_retries
+                        )
+                        if llm_attempt < max_llm_retries:
+                            time.sleep(llm_retry_delay)
+                        else:
+                            raise exc
+                    else:
+                        raise exc
+
+            if concept_name:
+                # verify Gemini's concept name against the API
+                verified = _icd_client.search_concept(concept_name, icd_version, top_k=1)
+                if verified and verified[0].get("token"):
+                    cand = verified[0]
+                    log_grounding_attempt(
+                        patient_id=patient_id, icd_code=icd_code, icd_version=icd_version,
+                        stage_matched=3, similarity_score=None,
+                        verification_token=cand["token"],
+                    )
+                    return json.dumps({
+                        "stage": 3, "icd_code": icd_code, "icd_version": icd_version,
+                        "title": cand.get("title"), "llm_concept": concept_name,
+                        "similarity_score": None,
+                        "verification_token": cand["token"], "status": "VERIFIED",
+                    })
         except Exception as exc:
-            logger.error("MedicalKnowledgeLookup failed: %s", exc)
-            return f"SYSTEM_FAILURE: {exc}"
+            logger.error("Stage 3 LLM fallback failed for %s: %s", icd_code, exc)
+
+        # ════════════════════════════════════════════════════════════════════
+        # All stages failed
+        # ════════════════════════════════════════════════════════════════════
+        log_grounding_attempt(
+            patient_id=patient_id, icd_code=icd_code, icd_version=icd_version,
+            stage_matched=None, similarity_score=None, verification_token=None,
+        )
+        return json.dumps({
+            "stage": "failed", "icd_code": icd_code, "icd_version": icd_version,
+            "similarity_score": None, "verification_token": None, "status": "UNVERIFIED",
+        })
