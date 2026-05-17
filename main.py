@@ -1,11 +1,26 @@
 import argparse
+import json
 import time
 from crewai import Crew, Process
 from src.agents import diagnostician, auditor
-from src.tasks import get_mining_task, get_audit_task
+from src.tasks import get_mining_task, get_audit_task, get_critique_task
+from src.tools import EHRPatternScanner
 from src.logger import get_logger
 
 logger = get_logger(__name__)
+
+_scanner = EHRPatternScanner()
+
+
+def _get_trajectory_json(patient_id: str) -> str:
+    raw = _scanner.run(patient_id)
+    try:
+        parsed = json.loads(raw)
+        if "error" in parsed:
+            raise ValueError(parsed["error"])
+    except (json.JSONDecodeError, TypeError):
+        raise ValueError(f"EHRPatternScanner returned non-JSON output for patient {patient_id}")
+    return raw
 
 
 def main() -> None:
@@ -15,18 +30,23 @@ def main() -> None:
 
     patient_id: str = args.patient
 
-    mining_task = get_mining_task(diagnostician, patient_id)
-    audit_task = get_audit_task(auditor, patient_id)
+    logger.info("Scanning EHR for patient %s", patient_id)
+    trajectory_json = _get_trajectory_json(patient_id)
+    logger.info("Trajectory acquired (%d chars)", len(trajectory_json))
+
+    t1 = get_mining_task(diagnostician, trajectory_json)
+    t2 = get_audit_task(auditor, trajectory_json)
+    t3 = get_critique_task(auditor, t1, t2)
 
     crew = Crew(
         agents=[diagnostician, auditor],
-        tasks=[mining_task, audit_task],
+        tasks=[t1, t2, t3],
         process=Process.sequential,
         verbose=True,
     )
 
-    logger.info("Starting clinical audit for patient %s", patient_id)
-    
+    logger.info("Starting adversarial clinical audit for patient %s", patient_id)
+
     max_retries = 3
     retry_delay = 25  # seconds
     result = None
@@ -40,42 +60,40 @@ def main() -> None:
         except Exception as e:
             err_str = str(e)
             is_rate_limit = (
-                "429" in err_str or 
-                "RESOURCE_EXHAUSTED" in err_str or 
-                "rate limit" in err_str.lower() or
-                "quota" in err_str.lower()
+                "429" in err_str
+                or "RESOURCE_EXHAUSTED" in err_str
+                or "rate limit" in err_str.lower()
+                or "quota" in err_str.lower()
             )
             is_unavailable = (
-                "503" in err_str or 
-                "UNAVAILABLE" in err_str or 
-                "overloaded" in err_str.lower()
+                "503" in err_str
+                or "UNAVAILABLE" in err_str
+                or "overloaded" in err_str.lower()
             )
-            
+
             if is_rate_limit:
                 logger.warning(
-                    "\n⚠️  [GEMINI API RATE LIMIT (429)] You have exceeded the free tier quota limits.\n"
-                    "Waiting %d seconds for the API cooldown period before retrying (Attempt %d/%d)...",
-                    retry_delay, attempt, max_retries
+                    "[GEMINI 429] Rate limit hit. Waiting %ds before retry (%d/%d).",
+                    retry_delay, attempt, max_retries,
                 )
                 if attempt < max_retries:
                     time.sleep(retry_delay)
                 else:
-                    logger.error("\n❌ Max retries reached. The audit has been blocked by API rate limits.")
-                    raise e
+                    logger.error("Max retries reached — blocked by API rate limits.")
+                    raise
             elif is_unavailable:
                 logger.warning(
-                    "\n⚠️  [GEMINI API SERVICE UNAVAILABLE (503)] The Gemini service is currently overloaded or unavailable.\n"
-                    "Waiting %d seconds before retrying (Attempt %d/%d)...",
-                    retry_delay, attempt, max_retries
+                    "[GEMINI 503] Service unavailable. Waiting %ds before retry (%d/%d).",
+                    retry_delay, attempt, max_retries,
                 )
                 if attempt < max_retries:
                     time.sleep(retry_delay)
                 else:
-                    logger.error("\n❌ Max retries reached. The audit has been blocked by API service downtime.")
-                    raise e
+                    logger.error("Max retries reached — blocked by API service downtime.")
+                    raise
             else:
-                logger.error("\n❌ An unexpected error occurred during the clinical audit: %s", e)
-                raise e
+                logger.error("Unexpected error during clinical audit: %s", e)
+                raise
 
 
 if __name__ == "__main__":
