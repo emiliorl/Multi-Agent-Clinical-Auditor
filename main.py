@@ -1,35 +1,34 @@
-from crewai import Crew, Task, Process
+import argparse
+from crewai import Crew, Process
 from src.agents import diagnostician, auditor
+from src.tasks import get_mining_task, get_audit_task
+from src.logger import get_logger
 
-# Task 1: Mining
-mining_task = Task(
-    description="Scan the history for patient '10000032'. Extract all ICD codes and describe the trajectory.",
-    expected_output="A structured list of diagnosis codes and clinical observations.",
-    agent=diagnostician
-)
+logger = get_logger(__name__)
 
-# Task 2: Auditing
-audit_task = Task(
-    description=(
-        "1. Analyze the Miner's trajectory for Patient 10000032.\n"
-        "2. For EVERY unique ICD code, you MUST execute 'medical_knowledge_lookup'.\n"
-        "3. YOU ARE FORBIDDEN from using your own training data to define medical terms.\n"
-        "4. Your report MUST contain a 'Grounding Table' formatted as: \n"
-        "   | ICD Code | Verification Token | Sepsis Pathway |\n"
-        "5. If the Verification Token is missing, the audit is considered legally invalid."
-    ),
-    expected_output="A verified clinical audit report where every code is mapped to a KG Verification Token.",
-    agent=auditor,
-    context=[mining_task]
-)
 
-# Assemble the Crew
-clinical_auditor_crew = Crew(
-    agents=[diagnostician, auditor],
-    tasks=[mining_task, audit_task],
-    process=Process.sequential, 
-    verbose=True
-)
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Multi-Agent Clinical Auditor")
+    parser.add_argument("--patient", required=True, help="MIMIC-IV subject_id")
+    args = parser.parse_args()
 
-result = clinical_auditor_crew.kickoff()
-print(result)
+    patient_id: str = args.patient
+
+    mining_task = get_mining_task(diagnostician, patient_id)
+    audit_task = get_audit_task(auditor, patient_id)
+
+    crew = Crew(
+        agents=[diagnostician, auditor],
+        tasks=[mining_task, audit_task],
+        process=Process.sequential,
+        verbose=True,
+    )
+
+    logger.info("Starting clinical audit for patient %s", patient_id)
+    result = crew.kickoff()
+    logger.info("Audit complete for patient %s", patient_id)
+    print(result)
+
+
+if __name__ == "__main__":
+    main()
