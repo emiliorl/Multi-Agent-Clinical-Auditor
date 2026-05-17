@@ -32,3 +32,6 @@ data/
 .DS_Store
 Thumbs.db
 .claude/
+
+# Runtime Logs
+logs/

@@ -10,7 +10,7 @@ api_key = os.getenv("GEMINI_API_KEY")
 clinical_llm = LLM(
     model="gemini/gemini-2.5-flash-lite",
     api_key=api_key,
-    temperature=0.1,
+    temperature=0.3,
 )
 
 # Agent A — receives pre-computed trajectory; EHRPatternScanner kept for fallback use
@@ -19,6 +19,21 @@ diagnostician = Agent(
     goal="Identify patient trajectories and sepsis triggers from raw EHR data",
     backstory="Expert in pattern discovery and sequence mining from clinical records.",
     tools=[EHRPatternScanner()],
+    llm=clinical_llm,
+    verbose=True,
+    allow_delegation=False,
+)
+
+# Manager Agent — pure reasoning, no external tools
+manager = Agent(
+    role="Clinical Governance Manager",
+    goal="Compute inter-agent agreement and enforce the Consensus Gate.",
+    backstory=(
+        "You do not diagnose. You receive two independent clinical assessments "
+        "and determine whether they agree above κ > 0.80. If they do not, you "
+        "produce a structured contradiction report for the Reflection Loop."
+    ),
+    tools=[],
     llm=clinical_llm,
     verbose=True,
     allow_delegation=False,
