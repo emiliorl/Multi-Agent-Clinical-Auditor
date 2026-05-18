@@ -42,7 +42,8 @@ def _run_with_retry(fn, max_retries: int = 3, retry_delay: int = 25):
             is_transient = any(
                 tag in err_str
                 for tag in ["429", "RESOURCE_EXHAUSTED", "rate limit", "quota",
-                            "503", "UNAVAILABLE", "overloaded"]
+                            "503", "UNAVAILABLE", "overloaded",
+                            "Invalid response from LLM call", "None or empty"]
             )
             if is_transient and attempt < max_retries:
                 logger.warning(

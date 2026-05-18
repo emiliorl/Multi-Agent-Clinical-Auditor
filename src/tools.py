@@ -158,24 +158,43 @@ _SIMILARITY_THRESHOLD = 0.85
 _icd_client = ICDApiClient()
 
 _TRANSIENT_TAGS = ("429", "RESOURCE_EXHAUSTED", "rate limit", "quota",
-                   "503", "UNAVAILABLE", "overloaded")
+                   "503", "UNAVAILABLE", "overloaded",
+                   "Invalid response from LLM call", "None or empty")
 
 
 def _is_transient(exc: BaseException) -> bool:
     return any(tag in str(exc) for tag in _TRANSIENT_TAGS)
 
 
+def _build_stage3_kwargs() -> dict:
+    """Return litellm.completion kwargs for the Stage 3 grounding call."""
+    if os.getenv("USE_LOCAL_LLM", "false").lower() == "true":
+        return {
+            "model": f"openai/{os.getenv('LM_STUDIO_MODEL', 'google/gemma-4-e4b')}",
+            "base_url": os.getenv("LM_STUDIO_BASE_URL", "http://127.0.0.1:1234/v1"),
+            "api_key": "lm-studio",
+        }
+    grounding_model = os.getenv("GROUNDING_MODEL", "gemini-2.5-flash")
+    return {
+        "model": f"gemini/{grounding_model}",
+        "api_key": os.getenv("GEMINI_API_KEY", ""),
+    }
+
+
 @retry(
     retry=retry_if_exception(_is_transient),
-    wait=wait_exponential(multiplier=1, min=2, max=30),
-    stop=stop_after_attempt(4),
+    wait=wait_exponential(multiplier=2, min=30, max=120),
+    stop=stop_after_attempt(3),
     reraise=True,
 )
-def _stage3_generate(client, prompt: str) -> str:
-    response = client.models.generate_content(
-        model="gemini-2.0-flash-lite", contents=prompt
+def _stage3_generate(prompt: str) -> str:
+    import litellm
+    kwargs = _build_stage3_kwargs()
+    response = litellm.completion(
+        messages=[{"role": "user", "content": prompt}],
+        **kwargs,
     )
-    return response.text.strip()
+    return response.choices[0].message.content.strip()
 _embedder: "SentenceTransformer | None" = None
 
 
@@ -248,14 +267,12 @@ def _ground_single_code(icd_code: str, icd_version: str, patient_id: str) -> dic
     # Stage 3 — LLM fallback, then verify against API
     # ════════════════════════════════════════════════════════════════════
     try:
-        from google import genai as google_genai
-        client = google_genai.Client(api_key=os.getenv("GEMINI_API_KEY", ""))
         prompt = (
             f"You are a clinical coding expert. Provide the standard medical concept name "
             f"for ICD-{icd_version} code '{icd_code}'. Reply with only the concept name, "
             f"nothing else."
         )
-        concept_name = _stage3_generate(client, prompt)
+        concept_name = _stage3_generate(prompt)
 
         if concept_name:
             verified = _icd_client.search_concept(concept_name, icd_version, top_k=1)
@@ -314,15 +331,19 @@ class BatchMedicalKnowledgeLookup(BaseTool):
     name: str = "batch_medical_knowledge_lookup"
     description: str = (
         "Ground ALL ICD codes for a patient in a single call. "
-        "Input: JSON with 'patient_id' (str) and 'codes' (list of objects, each with "
-        "'icd_code' and 'icd_version'). "
-        "Returns a grounding table: one result per code with stage, verification_token, and status. "
-        "Use this instead of calling medical_knowledge_lookup repeatedly."
+        "Action Input MUST use this exact format: "
+        "{\"input_str\": \"{\\\"patient_id\\\": \\\"PATIENT_ID\\\", \\\"codes\\\": "
+        "[{\\\"icd_code\\\": \\\"CODE\\\", \\\"icd_version\\\": \\\"9\\\"},...]}\"} "
+        "Returns a grounding table with stage, verification_token, and status per code. "
+        "Call EXACTLY ONCE — do not repeat for individual codes."
     )
 
     def _run(self, input_str: str) -> str:
         try:
             params = json.loads(input_str)
+            # Some models wrap the payload: {"input_str": "{...}"} — unwrap it
+            if "input_str" in params and "codes" not in params:
+                params = json.loads(params["input_str"])
             patient_id = str(params.get("patient_id", "unknown"))
             codes: list[dict] = params["codes"]
         except Exception as exc:

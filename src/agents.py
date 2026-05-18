@@ -5,14 +5,32 @@ from src.tools import EHRPatternScanner, BatchMedicalKnowledgeLookup
 
 load_dotenv()
 
-api_key = os.getenv("GEMINI_API_KEY")
+_use_local = os.getenv("USE_LOCAL_LLM", "false").lower() == "true"
+_clinical_model = os.getenv("CLINICAL_MODEL", "")
 
-clinical_llm = LLM(
-    model="gemini/gemini-2.5-flash-lite",
-    api_key=api_key,
-    temperature=0.3,
-    max_retries=5,
-)
+if _use_local or _clinical_model.startswith("openai/"):
+    _model_str = _clinical_model or f"openai/{os.getenv('LM_STUDIO_MODEL', 'google/gemma-4-e4b')}"
+    _lm_base = os.getenv("LM_STUDIO_BASE_URL", "http://127.0.0.1:1234/v1")
+    # instructor (used by CrewAI for output_pydantic) reads these env vars directly
+    os.environ.setdefault("OPENAI_API_KEY", "lm-studio")
+    os.environ.setdefault("OPENAI_API_BASE", _lm_base)
+    os.environ.setdefault("OPENAI_BASE_URL", _lm_base)
+    clinical_llm = LLM(
+        model=_model_str,
+        base_url=_lm_base,
+        api_key="lm-studio",
+        temperature=0.3,
+        max_retries=1,   # local LLM never rate-limits; retries just flood the server
+        timeout=300,     # 5 min — CPU-bound inference needs headroom
+    )
+else:
+    _model_str = _clinical_model or "gemini/gemini-2.5-flash"
+    clinical_llm = LLM(
+        model=_model_str,
+        api_key=os.getenv("GEMINI_API_KEY"),
+        temperature=0.3,
+        max_retries=5,
+    )
 
 # Agent A — receives pre-computed trajectory; EHRPatternScanner kept for fallback use
 diagnostician = Agent(

@@ -17,7 +17,8 @@ MAX_ITER = 3
 KAPPA_THRESHOLD = 0.80
 
 _TRANSIENT_TAGS = ("429", "RESOURCE_EXHAUSTED", "rate limit", "quota",
-                   "503", "UNAVAILABLE", "overloaded")
+                   "503", "UNAVAILABLE", "overloaded",
+                   "Invalid response from LLM call", "None or empty")
 
 
 def _is_transient(exc: BaseException) -> bool:
@@ -26,8 +27,8 @@ def _is_transient(exc: BaseException) -> bool:
 
 @retry(
     retry=retry_if_exception(_is_transient),
-    wait=wait_exponential(multiplier=1, min=2, max=30),
-    stop=stop_after_attempt(4),
+    wait=wait_exponential(multiplier=2, min=30, max=120),
+    stop=stop_after_attempt(3),
     reraise=True,
 )
 def _kickoff_with_retry(crew: Crew) -> None:
@@ -74,8 +75,10 @@ def _build_contradiction_report(
 
 
 def _parse_from_raw(raw: str) -> AgentDiagnosis:
-    """Fallback: extract AgentDiagnosis from raw LLM text when output_pydantic fails."""
-    match = re.search(r'\{.*\}', raw, re.DOTALL)
+    """Fallback: extract AgentDiagnosis from raw LLM text when output_pydantic is None."""
+    # Strip markdown code fences — local models (e.g. gemma) often wrap JSON in ```json...```
+    text = re.sub(r"```(?:json)?\s*", "", raw).strip()
+    match = re.search(r'\{.*\}', text, re.DOTALL)
     if match:
         try:
             return AgentDiagnosis(**json.loads(match.group()))
