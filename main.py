@@ -1,12 +1,14 @@
 import argparse
 import json
 import time
+from datetime import datetime, timezone
 from crewai import Crew, Process
 from src.agents import diagnostician, auditor
 from src.tasks import get_critique_from_outputs_task
 from src.tools import EHRPatternScanner
 from src.logger import get_logger
 from src.consensus_gate import run_consensus_gate, ConsensusFailure
+from src.grounding_logger import read_grounding_results_for_patient
 from src.reasoning_log import log_consensus, log_disagreement
 
 logger = get_logger(__name__)
@@ -25,20 +27,11 @@ def _get_trajectory_json(patient_id: str) -> str:
     return raw
 
 
-def _extract_grounding_table(trajectory_json: str) -> list[dict]:
-    traj = json.loads(trajectory_json)
-    return [
-        {
-            "icd_code": entry["code"],
-            "icd_version": entry["version"],
-            "stage": None,
-            "verification_token": None,
-        }
-        for entry in traj.get("icd_codes", [])
-    ]
-
-
 def _run_with_retry(fn, max_retries: int = 3, retry_delay: int = 25):
+    # High-level safety net only. Granular transient-error retries are handled closer
+    # to the source: _kickoff_with_retry in consensus_gate.py (per agent step) and
+    # _stage3_generate in tools.py (Stage 3 LLM grounding), both via tenacity with
+    # exponential backoff. This wrapper catches anything that escapes those layers.
     for attempt in range(1, max_retries + 1):
         try:
             return fn()
@@ -74,6 +67,7 @@ def main() -> None:
     logger.info("[Tier 1] Trajectory acquired (%d chars)", len(trajectory_json))
 
     # ── Tiers 2–4: Grounding → Adversarial Agents → Consensus Gate ──────────
+    run_start_time = datetime.now(timezone.utc)
     try:
         d_output, a_output, final_kappa, iterations = _run_with_retry(
             lambda: run_consensus_gate(
@@ -84,7 +78,7 @@ def main() -> None:
             )
         )
 
-        grounding_table = _extract_grounding_table(trajectory_json)
+        grounding_table = read_grounding_results_for_patient(patient_id, since=run_start_time)
         run_id = log_consensus(
             patient_id=patient_id,
             kappa_score=final_kappa,

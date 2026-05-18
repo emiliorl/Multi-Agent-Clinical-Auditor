@@ -4,6 +4,7 @@ import pandas as pd
 from crewai.tools import BaseTool
 from sentence_transformers import SentenceTransformer
 from sklearn.metrics.pairwise import cosine_similarity
+from tenacity import retry, retry_if_exception, stop_after_attempt, wait_exponential
 from src.models import Admission, IcdEntry, PatientTrajectory
 from src.icd_client import ICDApiClient
 from src.grounding_logger import log_grounding_attempt
@@ -155,6 +156,26 @@ class EHRPatternScanner(BaseTool):
 
 _SIMILARITY_THRESHOLD = 0.85
 _icd_client = ICDApiClient()
+
+_TRANSIENT_TAGS = ("429", "RESOURCE_EXHAUSTED", "rate limit", "quota",
+                   "503", "UNAVAILABLE", "overloaded")
+
+
+def _is_transient(exc: BaseException) -> bool:
+    return any(tag in str(exc) for tag in _TRANSIENT_TAGS)
+
+
+@retry(
+    retry=retry_if_exception(_is_transient),
+    wait=wait_exponential(multiplier=1, min=2, max=30),
+    stop=stop_after_attempt(4),
+    reraise=True,
+)
+def _stage3_generate(client, prompt: str) -> str:
+    response = client.models.generate_content(
+        model="gemini-2.0-flash-lite", contents=prompt
+    )
+    return response.text.strip()
 _embedder: "SentenceTransformer | None" = None
 
 
@@ -234,10 +255,7 @@ def _ground_single_code(icd_code: str, icd_version: str, patient_id: str) -> dic
             f"for ICD-{icd_version} code '{icd_code}'. Reply with only the concept name, "
             f"nothing else."
         )
-        response = client.models.generate_content(
-            model="gemini-2.0-flash-lite", contents=prompt
-        )
-        concept_name = response.text.strip()
+        concept_name = _stage3_generate(client, prompt)
 
         if concept_name:
             verified = _icd_client.search_concept(concept_name, icd_version, top_k=1)

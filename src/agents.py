@@ -11,6 +11,7 @@ clinical_llm = LLM(
     model="gemini/gemini-2.5-flash-lite",
     api_key=api_key,
     temperature=0.3,
+    max_retries=5,
 )
 
 # Agent A — receives pre-computed trajectory; EHRPatternScanner kept for fallback use
