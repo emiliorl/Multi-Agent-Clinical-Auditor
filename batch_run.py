@@ -70,7 +70,14 @@ def _extract_metrics(stdout: str, stderr: str, duration: float) -> dict:
 
 def _run_patient(patient_id: str) -> dict:
     import sys
+    import os
     start = time.time()
+    
+    # Force the child process to use UTF-8 encoding for standard I/O on Windows
+    env = os.environ.copy()
+    env["PYTHONIOENCODING"] = "utf-8"
+    env["PYTHONUTF8"] = "1"
+    
     proc = subprocess.Popen(
         [PYTHON, "main.py", "--patient", patient_id],
         stdout=subprocess.PIPE,
@@ -78,6 +85,7 @@ def _run_patient(patient_id: str) -> dict:
         text=True,
         encoding="utf-8",
         errors="replace",
+        env=env,
         cwd=Path(__file__).parent,
     )
     
@@ -86,7 +94,10 @@ def _run_patient(patient_id: str) -> dict:
     # Read output line by line in real-time and stream to terminal
     if proc.stdout:
         for line in iter(proc.stdout.readline, ""):
-            sys.stdout.write(line)
+            # Safely encode/decode using the terminal's native encoding to prevent CP1252 write crashes
+            terminal_encoding = sys.stdout.encoding or "utf-8"
+            safe_line = line.encode(terminal_encoding, errors="replace").decode(terminal_encoding)
+            sys.stdout.write(safe_line)
             sys.stdout.flush()
             accumulated_output.append(line)
             

@@ -28,7 +28,7 @@ if _use_local or _clinical_model.startswith("openai/"):
         timeout=300,     # 5 min — CPU-bound inference needs headroom
     )
 else:
-    _model_str = _clinical_model or "gemini/gemini-2.5-flash"
+    _model_str = _clinical_model or "gemini/gemini-2.5-flash-lite"
     clinical_llm = LLM(
         model=_model_str,
         api_key=os.getenv("GEMINI_API_KEY"),

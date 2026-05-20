@@ -14,8 +14,18 @@ from threading import Lock
 
 import requests
 from dotenv import load_dotenv
-from tenacity import retry, stop_after_attempt, wait_exponential
+from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception
 from src.logger import get_logger
+
+def _is_transient_who(exc: BaseException) -> bool:
+    if isinstance(exc, requests.HTTPError):
+        # Only retry on 5xx server errors or 429 Rate Limit (transient issues)
+        if exc.response is not None:
+            return exc.response.status_code >= 500 or exc.response.status_code == 429
+    # Retry on standard network timeout/connection errors
+    if isinstance(exc, (requests.ConnectionError, requests.Timeout)):
+        return True
+    return False
 
 load_dotenv()  # ensure .env is loaded regardless of import order
 logger = get_logger(__name__)
@@ -122,7 +132,12 @@ class ICDApiClient:
 
     # ── ICD-9 via NLM Clinical Tables ─────────────────────────────────────────
 
-    @retry(wait=wait_exponential(multiplier=1, min=2, max=30), stop=stop_after_attempt(4))
+    @retry(
+        retry=retry_if_exception(_is_transient_who),
+        wait=wait_exponential(multiplier=1, min=2, max=30),
+        stop=stop_after_attempt(4),
+        reraise=True,
+    )
     def _nlm_request(self, params: dict) -> list:
         resp = requests.get(_NLM_SEARCH_URL, params=params, timeout=15)
         resp.raise_for_status()
@@ -195,12 +210,20 @@ class ICDApiClient:
         resp = requests.get(url, headers=headers, timeout=15)
         if not resp.ok and self._fallback:
             fallback_url = url.replace(self._primary, self._fallback, 1)
-            logger.warning("Primary WHO API returned %s, trying fallback", resp.status_code)
+            if resp.status_code == 404:
+                logger.debug("Primary WHO API returned 404, trying fallback")
+            else:
+                logger.warning("Primary WHO API returned %s, trying fallback", resp.status_code)
             resp = requests.get(fallback_url, headers=headers, timeout=15)
         resp.raise_for_status()
         return resp
 
-    @retry(wait=wait_exponential(multiplier=1, min=2, max=30), stop=stop_after_attempt(4))
+    @retry(
+        retry=retry_if_exception(_is_transient_who),
+        wait=wait_exponential(multiplier=1, min=2, max=30),
+        stop=stop_after_attempt(4),
+        reraise=True,
+    )
     def _who_get_with_retry(self, url: str) -> requests.Response:
         return self._who_get(url)
 
@@ -209,7 +232,12 @@ class ICDApiClient:
         if cached:
             return cached
 
-        url = _WHO_ICD10_BASE.format(primary=self._primary, code=code)
+        # Format code with dot if needed (WHO ICD-10 API requires dot, e.g. E11.8 instead of E118)
+        formatted_code = code.strip()
+        if len(formatted_code) > 3 and "." not in formatted_code:
+            formatted_code = f"{formatted_code[:3]}.{formatted_code[3:]}"
+
+        url = _WHO_ICD10_BASE.format(primary=self._primary, code=formatted_code)
         try:
             resp = self._who_get_with_retry(url)
             data = resp.json()

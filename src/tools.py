@@ -174,7 +174,7 @@ def _build_stage3_kwargs() -> dict:
             "base_url": os.getenv("LM_STUDIO_BASE_URL", "http://127.0.0.1:1234/v1"),
             "api_key": "lm-studio",
         }
-    grounding_model = os.getenv("GROUNDING_MODEL", "gemini-2.5-flash")
+    grounding_model = os.getenv("GROUNDING_MODEL", "gemini-2.5-flash-lite")
     return {
         "model": f"gemini/{grounding_model}",
         "api_key": os.getenv("GEMINI_API_KEY", ""),
