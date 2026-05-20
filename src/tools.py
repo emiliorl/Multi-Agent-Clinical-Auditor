@@ -157,6 +157,40 @@ class EHRPatternScanner(BaseTool):
 _SIMILARITY_THRESHOLD = 0.85
 _icd_client = ICDApiClient()
 
+_LOCAL_DICT_FILENAME = "d_icd_diagnoses.csv.gz"
+_local_icd_dict: "dict[tuple[str,str], str] | None" = None
+_local_dict_lock = Lock()
+
+
+def _get_local_dict() -> "dict[tuple[str,str], str]":
+    """Lazily load {(icd_code, icd_version): long_title} from the MIMIC ICD dictionary."""
+    global _local_icd_dict
+    if _local_icd_dict is None:
+        with _local_dict_lock:
+            if _local_icd_dict is None:
+                dict_path = os.path.join(_data_dir(), _LOCAL_DICT_FILENAME)
+                if os.path.exists(dict_path):
+                    try:
+                        df = pd.read_csv(dict_path, compression="gzip", dtype=str)
+                        d: dict[tuple[str, str], str] = {}
+                        for _, row in df.iterrows():
+                            code = str(row["icd_code"]).strip()
+                            try:
+                                version = str(int(float(str(row["icd_version"]))))
+                            except (ValueError, TypeError):
+                                version = str(row["icd_version"]).strip()
+                            title = str(row.get("long_title", "")).strip()
+                            d[(code, version)] = title
+                        _local_icd_dict = d
+                        logger.info("Loaded local ICD dictionary: %d entries", len(d))
+                    except Exception as exc:
+                        logger.warning("Could not load local ICD dictionary: %s", exc)
+                        _local_icd_dict = {}
+                else:
+                    logger.warning("Local ICD dictionary not found at %s", dict_path)
+                    _local_icd_dict = {}
+    return _local_icd_dict
+
 _TRANSIENT_TAGS = ("429", "RESOURCE_EXHAUSTED", "rate limit", "quota",
                    "503", "UNAVAILABLE", "overloaded",
                    "Invalid response from LLM call", "None or empty")
@@ -225,6 +259,24 @@ def normalize_code(c: str) -> str:
 def _ground_single_code(icd_code: str, icd_version: str, patient_id: str) -> dict:
     """Run the 3-stage grounding pipeline for one ICD code. Returns a result dict."""
     logger.info("Grounding ICD-%s code %s for patient %s", icd_version, icd_code, patient_id)
+
+    # ════════════════════════════════════════════════════════════════════
+    # Stage 0 — Local MIMIC ICD dictionary (zero network calls)
+    # ════════════════════════════════════════════════════════════════════
+    local_dict = _get_local_dict()
+    local_title = local_dict.get((icd_code, icd_version))
+    if local_title is not None:
+        token = f"LOCAL_SIG_{icd_code.replace('.', '_')}"
+        log_grounding_attempt(
+            patient_id=patient_id, icd_code=icd_code, icd_version=icd_version,
+            stage_matched=0, similarity_score=None,
+            verification_token=token,
+        )
+        return {
+            "stage": 0, "icd_code": icd_code, "icd_version": icd_version,
+            "title": local_title, "similarity_score": None,
+            "verification_token": token, "status": "VERIFIED",
+        }
 
     # ════════════════════════════════════════════════════════════════════
     # Stage 1 — Exact API match
