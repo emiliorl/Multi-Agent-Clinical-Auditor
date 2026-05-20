@@ -69,21 +69,36 @@ def _extract_metrics(stdout: str, stderr: str, duration: float) -> dict:
 
 
 def _run_patient(patient_id: str) -> dict:
+    import sys
     start = time.time()
-    proc = subprocess.run(
+    proc = subprocess.Popen(
         [PYTHON, "main.py", "--patient", patient_id],
-        capture_output=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
         text=True,
         encoding="utf-8",
-        errors="replace",   # κ and em-dashes survive on any Windows console
+        errors="replace",
         cwd=Path(__file__).parent,
     )
+    
+    accumulated_output = []
+    
+    # Read output line by line in real-time and stream to terminal
+    if proc.stdout:
+        for line in iter(proc.stdout.readline, ""):
+            sys.stdout.write(line)
+            sys.stdout.flush()
+            accumulated_output.append(line)
+            
+    proc.wait()
     duration = time.time() - start
-    metrics = _extract_metrics(proc.stdout, proc.stderr, duration)
+    full_output = "".join(accumulated_output)
+    
+    # Extract metrics using the full merged output
+    metrics = _extract_metrics(full_output, "", duration)
     metrics["patient_id"] = patient_id
     metrics["returncode"] = proc.returncode
-    # Preserve tail of stderr+stdout for the report even on success when status is unknown
-    tail = (proc.stderr[-800:] or proc.stdout[-800:]).strip()
+    tail = full_output[-800:].strip()
     metrics["error"] = tail if (proc.returncode != 0 or metrics["status"] == "UNKNOWN") else None
     return metrics
 

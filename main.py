@@ -1,7 +1,13 @@
 import argparse
 import json
+import os
 import time
 from datetime import datetime, timezone
+
+# Disable CrewAI telemetry BEFORE importing crewai to prevent hangs and connection timeouts
+os.environ["OTEL_SDK_DISABLED"] = "true"
+os.environ["CREWAI_TELEMETRY_OPT_OUT"] = "true"
+
 from crewai import Crew, Process
 from src.agents import diagnostician, auditor
 from src.tasks import get_critique_from_outputs_task

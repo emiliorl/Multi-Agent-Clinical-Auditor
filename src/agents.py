@@ -1,9 +1,13 @@
 import os
 from dotenv import load_dotenv
+
+# Disable CrewAI telemetry BEFORE importing crewai to prevent hangs and connection timeouts
+os.environ["OTEL_SDK_DISABLED"] = "true"
+os.environ["CREWAI_TELEMETRY_OPT_OUT"] = "true"
+load_dotenv()
+
 from crewai import Agent, LLM
 from src.tools import EHRPatternScanner, BatchMedicalKnowledgeLookup
-
-load_dotenv()
 
 _use_local = os.getenv("USE_LOCAL_LLM", "false").lower() == "true"
 _clinical_model = os.getenv("CLINICAL_MODEL", "")

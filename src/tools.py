@@ -195,13 +195,19 @@ def _stage3_generate(prompt: str) -> str:
         **kwargs,
     )
     return response.choices[0].message.content.strip()
+import concurrent.futures
+from threading import Lock
+
 _embedder: "SentenceTransformer | None" = None
+_embedder_lock = Lock()
 
 
 def _get_embedder() -> "SentenceTransformer":
     global _embedder
     if _embedder is None:
-        _embedder = SentenceTransformer("all-MiniLM-L6-v2")
+        with _embedder_lock:
+            if _embedder is None:
+                _embedder = SentenceTransformer("all-MiniLM-L6-v2")
     return _embedder
 
 
@@ -210,6 +216,10 @@ def _cosine(a: list[float], b: list[float]) -> float:
     va = np.array(a).reshape(1, -1)
     vb = np.array(b).reshape(1, -1)
     return float(cosine_similarity(va, vb)[0][0])
+
+
+def normalize_code(c: str) -> str:
+    return str(c).strip().replace(".", "").lower()
 
 
 def _ground_single_code(icd_code: str, icd_version: str, patient_id: str) -> dict:
@@ -237,31 +247,54 @@ def _ground_single_code(icd_code: str, icd_version: str, patient_id: str) -> dic
     # ════════════════════════════════════════════════════════════════════
     candidates = _icd_client.search_concept(icd_code, icd_version, top_k=5)
     if candidates:
-        embedder = _get_embedder()
-        query_vec = embedder.encode(icd_code).tolist()
-        best_score = 0.0
-        best_candidate = None
+        # First, try to find an exact normalized code match among search candidates.
+        # This is extremely fast, avoids SentenceTransformer overhead, and avoids Stage 3 LLM fallbacks.
+        normalized_query = normalize_code(icd_code)
         for cand in candidates:
-            title = cand.get("title") or cand.get("code", "")
-            cand_vec = embedder.encode(title).tolist()
-            score = _cosine(query_vec, cand_vec)
-            if score > best_score:
-                best_score = score
-                best_candidate = cand
+            cand_code = cand.get("code", "")
+            if cand_code and normalize_code(cand_code) == normalized_query:
+                log_grounding_attempt(
+                    patient_id=patient_id, icd_code=icd_code, icd_version=icd_version,
+                    stage_matched=2, similarity_score=1.0,
+                    verification_token=cand["token"],
+                )
+                return {
+                    "stage": 2, "icd_code": icd_code, "icd_version": icd_version,
+                    "title": cand.get("title"),
+                    "matched_code": cand.get("code"),
+                    "similarity_score": 1.0,
+                    "verification_token": cand["token"], "status": "VERIFIED",
+                }
 
-        if best_score > _SIMILARITY_THRESHOLD and best_candidate:
-            log_grounding_attempt(
-                patient_id=patient_id, icd_code=icd_code, icd_version=icd_version,
-                stage_matched=2, similarity_score=best_score,
-                verification_token=best_candidate["token"],
-            )
-            return {
-                "stage": 2, "icd_code": icd_code, "icd_version": icd_version,
-                "title": best_candidate.get("title"),
-                "matched_code": best_candidate.get("code"),
-                "similarity_score": round(best_score, 4),
-                "verification_token": best_candidate["token"], "status": "VERIFIED",
-            }
+        # Fallback to SentenceTransformer semantic similarity if exact code match fails.
+        try:
+            embedder = _get_embedder()
+            query_vec = embedder.encode(icd_code).tolist()
+            best_score = 0.0
+            best_candidate = None
+            for cand in candidates:
+                title = cand.get("title") or cand.get("code", "")
+                cand_vec = embedder.encode(title).tolist()
+                score = _cosine(query_vec, cand_vec)
+                if score > best_score:
+                    best_score = score
+                    best_candidate = cand
+
+            if best_score > _SIMILARITY_THRESHOLD and best_candidate:
+                log_grounding_attempt(
+                    patient_id=patient_id, icd_code=icd_code, icd_version=icd_version,
+                    stage_matched=2, similarity_score=best_score,
+                    verification_token=best_candidate["token"],
+                )
+                return {
+                    "stage": 2, "icd_code": icd_code, "icd_version": icd_version,
+                    "title": best_candidate.get("title"),
+                    "matched_code": best_candidate.get("code"),
+                    "similarity_score": round(best_score, 4),
+                    "verification_token": best_candidate["token"], "status": "VERIFIED",
+                }
+        except Exception as exc:
+            logger.error("Stage 2 semantic similarity failed for %s: %s", icd_code, exc)
 
     # ════════════════════════════════════════════════════════════════════
     # Stage 3 — LLM fallback, then verify against API
@@ -349,13 +382,41 @@ class BatchMedicalKnowledgeLookup(BaseTool):
         except Exception as exc:
             return json.dumps({"error": f"Invalid input: {exc}"})
 
-        results = []
+        # Deduplicate code entries in the batch to avoid redundant grounding tasks
+        seen = set()
+        unique_codes = []
         for entry in codes:
             icd_code = str(entry.get("icd_code", "")).strip()
             icd_version = str(entry.get("icd_version", "10")).strip()
             if not icd_code:
                 continue
-            results.append(_ground_single_code(icd_code, icd_version, patient_id))
+            key = (icd_code, icd_version)
+            if key not in seen:
+                seen.add(key)
+                unique_codes.append((icd_code, icd_version))
+
+        results = []
+        # Since _ground_single_code is heavily I/O-bound (NLM/WHO API calls & LLM fallback),
+        # running grounding in parallel via a ThreadPoolExecutor significantly reduces overall latency.
+        max_workers = min(10, len(unique_codes)) if unique_codes else 1
+        if max_workers > 0:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+                future_to_code = {
+                    executor.submit(_ground_single_code, code, ver, patient_id): (code, ver)
+                    for code, ver in unique_codes
+                }
+                for future in concurrent.futures.as_completed(future_to_code):
+                    code, ver = future_to_code[future]
+                    try:
+                        res = future.result()
+                        results.append(res)
+                    except Exception as exc:
+                        logger.error("Failed to ground code %s (v%s) in parallel: %s", code, ver, exc)
+                        results.append({
+                            "stage": "failed", "icd_code": code, "icd_version": ver,
+                            "similarity_score": None, "verification_token": None, "status": "UNVERIFIED",
+                            "error": str(exc),
+                        })
 
         verified = [r for r in results if r["status"] == "VERIFIED"]
         unverified = [r for r in results if r["status"] == "UNVERIFIED"]
