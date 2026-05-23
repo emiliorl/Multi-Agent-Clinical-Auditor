@@ -29,9 +29,11 @@ if _use_local or _clinical_model.startswith("openai/"):
     )
 else:
     _model_str = _clinical_model or "gemini/gemini-2.5-flash-lite"
+    _provider = _model_str.split("/")[0] if "/" in _model_str else "gemini"
+    _api_key_env = {"groq": "GROQ_API_KEY", "gemini": "GEMINI_API_KEY"}.get(_provider, "GEMINI_API_KEY")
     clinical_llm = LLM(
         model=_model_str,
-        api_key=os.getenv("GEMINI_API_KEY"),
+        api_key=os.getenv(_api_key_env),
         temperature=0.3,
         max_retries=5,
     )

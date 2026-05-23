@@ -74,17 +74,84 @@ def _build_contradiction_report(
     )
 
 
-def _parse_from_raw(raw: str) -> AgentDiagnosis:
-    """Fallback: extract AgentDiagnosis from raw LLM text when output_pydantic is None."""
-    # Strip markdown code fences — local models (e.g. gemma) often wrap JSON in ```json...```
-    text = re.sub(r"```(?:json)?\s*", "", raw).strip()
+def _clean_fences(text: str) -> str:
+    return re.sub(r"```(?:json)?\s*", "", text).replace("```", "").strip()
+
+
+def _try_parse(text: str) -> AgentDiagnosis | None:
+    """Try to parse AgentDiagnosis from text, returning None on any failure."""
+    text = _clean_fences(text)
+    # find the outermost {...} block
     match = re.search(r'\{.*\}', text, re.DOTALL)
-    if match:
-        try:
-            return AgentDiagnosis(**json.loads(match.group()))
-        except Exception as exc:
-            logger.error("[_run_single_task] JSON parse from raw failed: %s", exc)
-    raise ValueError(f"Could not parse AgentDiagnosis from raw output (first 300 chars): {raw[:300]}")
+    if not match:
+        return None
+    try:
+        data = json.loads(match.group())
+        # coerce common type mismatches from local models
+        if isinstance(data.get("icd_codes_cited"), str):
+            data["icd_codes_cited"] = [c.strip() for c in data["icd_codes_cited"].split(",") if c.strip()]
+        if isinstance(data.get("evidence_chain"), str):
+            data["evidence_chain"] = [data["evidence_chain"]]
+        if isinstance(data.get("unverified_codes"), str):
+            data["unverified_codes"] = [c.strip() for c in data["unverified_codes"].split(",") if c.strip()]
+        data.setdefault("unverified_codes", [])
+        return AgentDiagnosis(**data)
+    except Exception:
+        return None
+
+
+def _parse_from_raw(raw: str) -> AgentDiagnosis:
+    """
+    Multi-strategy extractor for AgentDiagnosis from raw LLM output.
+    Local models (Gemma, Qwen) produce ReAct Thought/Action chains before
+    the final JSON — each strategy peels back one layer of wrapping.
+    """
+    # Strategy 1 — raw as-is (works when model outputs clean JSON directly)
+    result = _try_parse(raw)
+    if result:
+        return result
+
+    # Strategy 2 — everything after "Final Answer:" (standard ReAct terminator)
+    fa_match = re.search(r'(?:Final Answer:|FINAL ANSWER:)\s*([\s\S]*?)$', raw, re.IGNORECASE)
+    if fa_match:
+        result = _try_parse(fa_match.group(1))
+        if result:
+            return result
+
+    # Strategy 3 — strip Thought/Action/Observation lines, retry
+    cleaned = re.sub(
+        r'^(?:Thought|Action|Observation|Action Input)\s*(?:\d+)?\s*:\s*.*$',
+        '', raw, flags=re.MULTILINE | re.IGNORECASE
+    )
+    result = _try_parse(cleaned)
+    if result:
+        return result
+
+    # Strategy 4 — try every {...} block from largest to smallest
+    for m in sorted(re.finditer(r'\{[^<>]{10,}\}', raw, re.DOTALL), key=lambda x: -len(x.group())):
+        result = _try_parse(m.group())
+        if result:
+            return result
+
+    # Strategy 5 — recovery: build a minimal valid object from the text so the
+    # pipeline continues rather than crashing. Confidence is set very low to signal
+    # that this output is unreliable and should be treated as ESCALATED.
+    logger.error(
+        "[_parse_from_raw] All strategies failed — using recovery stub. raw (first 400): %s",
+        raw[:400],
+    )
+    icd_pattern = re.compile(r'\b([A-Z]\d{2}(?:\.\d{1,4})?|\d{3,5}(?:\.\d{1,2})?)\b')
+    found_codes = list(dict.fromkeys(icd_pattern.findall(raw)))[:10]
+    pid_match = re.search(r'"patient_id"\s*:\s*"([^"]+)"', raw)
+    patient_id = pid_match.group(1) if pid_match else "unknown"
+    return AgentDiagnosis(
+        patient_id=patient_id,
+        diagnosis_hypothesis="[PARSE FAILURE] Model did not return structured output.",
+        icd_codes_cited=found_codes,
+        evidence_chain=["Recovery mode: structured output parsing failed after all strategies."],
+        confidence_score=0.0,
+        unverified_codes=[],
+    )
 
 
 def _run_single_task(agent, task_fn, *args, **kwargs) -> AgentDiagnosis:

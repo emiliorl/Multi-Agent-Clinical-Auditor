@@ -95,22 +95,21 @@ def get_reflection_task(agent, trajectory_json: str, contradiction_report: str) 
 
     return Task(
         description=(
-            "A previous round of assessment did NOT reach consensus (κ ≤ 0.80). "
-            "Revise your clinical assessment in light of the contradiction report below.\n\n"
+            "A previous round did NOT reach consensus (κ ≤ 0.80). "
+            "Revise your assessment to resolve the disagreements listed below.\n\n"
             f"CONTRADICTION REPORT:\n{contradiction_report}\n\n"
-            f"PATIENT TRAJECTORY JSON:\n{trajectory_json}\n\n"
-            "Re-examine the trajectory. For each code where you disagreed, reconsider whether "
-            "the evidence supports including or excluding it.\n\n"
-            f"If you are the Auditor, call batch_medical_knowledge_lookup EXACTLY ONCE "
-            f"with patient_id={patient_id!r} and all codes from the trajectory's icd_codes list.\n\n"
-            "Return a single JSON object matching the AgentDiagnosis schema. "
-            "Your revised output should resolve as many disagreements as the evidence allows."
+            f"Patient ID: {patient_id}\n\n"
+            "Instructions:\n"
+            "1. Review each disagreement. For codes only you cited, decide if the evidence is strong enough to keep them.\n"
+            "2. For codes the other agent cited that you did not, decide if you should add them.\n"
+            "3. Aim to converge — only keep a code in icd_codes_cited if you have clear clinical evidence.\n"
+            "4. Do NOT re-call any tools.\n\n"
+            "Return ONLY the JSON object below — no extra text, no markdown fences."
             + _JSON_SCHEMA_HINT
         ),
         expected_output=(
             "A JSON object with fields: patient_id, diagnosis_hypothesis, icd_codes_cited (list of str), "
-            "evidence_chain (list of str), confidence_score (float 0-1), unverified_codes (list of str). "
-            "The output should reflect careful reconsideration of the contradiction points."
+            "evidence_chain (list of str), confidence_score (float 0-1), unverified_codes (list of str)."
         ),
         output_pydantic=_pydantic_output(),
         agent=agent,

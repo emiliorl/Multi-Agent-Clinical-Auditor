@@ -1,5 +1,6 @@
 import json
 import os
+from threading import Lock
 import pandas as pd
 from crewai.tools import BaseTool
 from sentence_transformers import SentenceTransformer
@@ -230,7 +231,6 @@ def _stage3_generate(prompt: str) -> str:
     )
     return response.choices[0].message.content.strip()
 import concurrent.futures
-from threading import Lock
 
 _embedder: "SentenceTransformer | None" = None
 _embedder_lock = Lock()
