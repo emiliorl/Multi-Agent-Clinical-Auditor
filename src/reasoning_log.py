@@ -1,6 +1,7 @@
 """Immutable append-only JSONL writers for reasoning and disagreement logs."""
 
 import json
+import math
 import os
 import uuid
 from datetime import datetime, timezone
@@ -16,6 +17,17 @@ def _ensure_logs_dir() -> None:
     os.makedirs("logs", exist_ok=True)
 
 
+def _sanitize_kappa(value: float | None) -> float | None:
+    """Return None if value is NaN or infinite; avoids corrupt JSONL entries."""
+    if value is None:
+        return None
+    try:
+        f = float(value)
+        return None if not math.isfinite(f) else f
+    except (TypeError, ValueError):
+        return None
+
+
 def log_consensus(
     *,
     patient_id: str,
@@ -28,6 +40,7 @@ def log_consensus(
     """Append a successful consensus run to reasoning_log.jsonl. Returns the run_id."""
     _ensure_logs_dir()
     run_id = str(uuid.uuid4())
+    kappa_score = _sanitize_kappa(kappa_score)
     final_codes = sorted(
         set(diagnostician_output.icd_codes_cited) | set(auditor_output.icd_codes_cited)
     )
@@ -70,6 +83,7 @@ def log_disagreement(
     """Append a ConsensusFailure escalation to disagreement_log.jsonl. Returns the run_id."""
     _ensure_logs_dir()
     run_id = str(uuid.uuid4())
+    final_kappa = _sanitize_kappa(final_kappa)
     record = {
         "run_id": run_id,
         "patient_id": patient_id,

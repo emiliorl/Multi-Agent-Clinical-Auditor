@@ -112,9 +112,9 @@ python main.py
 
 ## 🧪 Testing Different Patient Records
 To audit or mine clinical trajectories for a different patient, simply check the list of available patient IDs in the extracted dataset:
-📄 [data/mimic-iv-clinical-database-demo-2.2/demo_subject_id.csv](file:///c:/Users/emili/Multi-Agent-Clinical-Auditor/data/mimic-iv-clinical-database-demo-2.2/demo_subject_id.csv)
+📄 [data/mimic-iv-clinical-database-demo-2.2/demo_subject_id.csv]
 
-Open [main.py](file:///c:/Users/emili/Multi-Agent-Clinical-Auditor/main.py) and update the `patient_id` inside the task description (e.g., changing `'10000032'` to `'10001217'`):
+Open [main.py] and update the `patient_id` inside the task description (e.g., changing `'10000032'` to `'10001217'`):
 
 ```python
 # In main.py
@@ -129,4 +129,4 @@ mining_task = Task(
 
 ## 🔒 Security & Privacy (HIPAA compliance)
 - **Zero Raw Data Exposure:** The AI agent only receives the extracted text snippet of the specific matched patient ID. The entire database is parsed locally and is never sent to any external server.
-- **Sensitive files Ignored:** All local database records, raw CSVs, large zip archives, and private keys (`.env`) are strictly excluded in [.gitignore](file:///c:/Users/emili/Multi-Agent-Clinical-Auditor/.gitignore).
+- **Sensitive files Ignored:** All local database records, raw CSVs, large zip archives, and private keys (`.env`) are strictly excluded in [.gitignore].

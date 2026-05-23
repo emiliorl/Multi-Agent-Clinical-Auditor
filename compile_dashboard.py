@@ -31,6 +31,7 @@ if __name__ == "__main__":
                 sys.exit(subprocess.call([str(venv_python)] + sys.argv))
 
 import json
+import math
 import re
 from datetime import datetime
 from pathlib import Path
@@ -57,9 +58,19 @@ def safe_parse_jsonl(file_path: Path) -> list[dict]:
     return records
 
 
+def _safe_kappa(value) -> float | None:
+    if value is None:
+        return None
+    try:
+        f = float(value)
+        return None if not math.isfinite(f) else f
+    except (TypeError, ValueError):
+        return None
+
+
 def build_consolidated_data() -> tuple[list[dict], dict]:
-    """Merge logs, deduplicate (latest run per patient), compute stats."""
-    patient_latest: dict[str, dict] = {}
+    """Collect all runs per patient, sort newest-first, compute stats from latest run."""
+    patient_runs: dict[str, list[dict]] = {}
 
     for run in safe_parse_jsonl(REASONING_LOG):
         pid = run.get("patient_id")
@@ -70,16 +81,11 @@ def build_consolidated_data() -> tuple[list[dict], dict]:
             ts = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
         except ValueError:
             ts = datetime.min
-        try:
-            kappa_val = float(run["kappa_score"]) if run.get("kappa_score") is not None else None
-        except (ValueError, TypeError):
-            kappa_val = None
         record = {
-            "patient_id": pid,
+            "run_id": run.get("run_id"),
             "status": "CONSENSUS",
-            "kappa": kappa_val,
+            "kappa": _safe_kappa(run.get("kappa_score")),
             "iterations": run.get("iterations", 1),
-            "timestamp": ts,
             "timestamp_str": ts_str,
             "icd_codes": run.get("final_icd_codes", []),
             "grounding": run.get("grounding_table", []),
@@ -88,9 +94,9 @@ def build_consolidated_data() -> tuple[list[dict], dict]:
             "diagnostician_position": run.get("diagnostician_position"),
             "auditor_position": run.get("auditor_position"),
             "contradiction_points": [],
+            "_ts": ts,
         }
-        if pid not in patient_latest or ts > patient_latest[pid]["timestamp"]:
-            patient_latest[pid] = record
+        patient_runs.setdefault(pid, []).append(record)
 
     for run in safe_parse_jsonl(DISAGREEMENT_LOG):
         pid = run.get("patient_id")
@@ -101,17 +107,12 @@ def build_consolidated_data() -> tuple[list[dict], dict]:
             ts = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
         except ValueError:
             ts = datetime.min
-        try:
-            kappa_val = float(run["final_kappa"]) if run.get("final_kappa") is not None else None
-        except (ValueError, TypeError):
-            kappa_val = None
         diag_final = run.get("diagnostician_final_position") or {}
         record = {
-            "patient_id": pid,
+            "run_id": run.get("run_id"),
             "status": "ESCALATED",
-            "kappa": kappa_val,
+            "kappa": _safe_kappa(run.get("final_kappa")),
             "iterations": run.get("iterations", 3),
-            "timestamp": ts,
             "timestamp_str": ts_str,
             "icd_codes": diag_final.get("icd_codes_cited", []),
             "grounding": [],
@@ -120,16 +121,38 @@ def build_consolidated_data() -> tuple[list[dict], dict]:
             "diagnostician_position": diag_final if diag_final else None,
             "auditor_position": run.get("auditor_final_position"),
             "contradiction_points": run.get("contradiction_points", []),
+            "_ts": ts,
         }
-        if pid not in patient_latest or ts > patient_latest[pid]["timestamp"]:
-            patient_latest[pid] = record
+        patient_runs.setdefault(pid, []).append(record)
 
-    sorted_patients = [patient_latest[pid] for pid in sorted(patient_latest)]
-    total          = len(sorted_patients)
+    sorted_patients: list[dict] = []
+    for pid in sorted(patient_runs.keys()):
+        runs = sorted(patient_runs[pid], key=lambda r: r["_ts"], reverse=True)
+        for r in runs:
+            r.pop("_ts", None)
+        latest = runs[0]
+        sorted_patients.append({
+            "patient_id": pid,
+            "status": latest["status"],
+            "kappa": latest["kappa"],
+            "iterations": latest["iterations"],
+            "timestamp_str": latest["timestamp_str"],
+            "icd_codes": latest["icd_codes"],
+            "grounding": latest["grounding"],
+            "diagnosis": latest["diagnosis"],
+            "evidence": latest["evidence"],
+            "diagnostician_position": latest["diagnostician_position"],
+            "auditor_position": latest["auditor_position"],
+            "contradiction_points": latest["contradiction_points"],
+            "run_count": len(runs),
+            "runs": runs,
+        })
+
+    total           = len(sorted_patients)
     consensus_count = sum(1 for p in sorted_patients if p["status"] == "CONSENSUS")
     escalated_count = total - consensus_count
-    valid_kappas   = [p["kappa"] for p in sorted_patients if p["kappa"] is not None]
-    avg_kappa      = sum(valid_kappas) / len(valid_kappas) if valid_kappas else 0.0
+    valid_kappas    = [p["kappa"] for p in sorted_patients if p["kappa"] is not None]
+    avg_kappa       = sum(valid_kappas) / len(valid_kappas) if valid_kappas else 0.0
 
     stats = {
         "total_audited":      total,
@@ -144,7 +167,7 @@ def build_consolidated_data() -> tuple[list[dict], dict]:
 def generate_patients_json(patients: list[dict], stats: dict) -> Path:
     """Write reports/patients.json — the live data file fetched by the dashboard."""
     REPORTS_DIR.mkdir(exist_ok=True)
-    serialized = [{k: v for k, v in p.items() if k != "timestamp"} for p in patients]
+    serialized = patients
     output = {
         "generated_at": datetime.now().isoformat(timespec="seconds"),
         "stats": stats,

@@ -1,12 +1,14 @@
 """Rebuild reports/patients.json from JSONL logs.
 
 Called after every patient audit so the dashboard auto-refreshes via fetch().
-This is intentionally lightweight — no HTML rendering, just JSON.
+Each patient record includes a full `runs` list (newest-first) so the dashboard
+can render per-run history without re-fetching.
 """
 
 from __future__ import annotations
 
 import json
+import math
 import re
 from datetime import datetime
 from pathlib import Path
@@ -34,9 +36,19 @@ def _parse_jsonl(path: Path) -> list[dict]:
     return records
 
 
+def _safe_kappa(value) -> float | None:
+    if value is None:
+        return None
+    try:
+        f = float(value)
+        return None if not math.isfinite(f) else f
+    except (TypeError, ValueError):
+        return None
+
+
 def refresh_patients_json() -> None:
     """Rebuild reports/patients.json from the current JSONL logs (best-effort)."""
-    patient_latest: dict[str, dict] = {}
+    patient_runs: dict[str, list[dict]] = {}
 
     for run in _parse_jsonl(REASONING_LOG):
         pid = run.get("patient_id")
@@ -47,15 +59,10 @@ def refresh_patients_json() -> None:
             ts = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
         except ValueError:
             ts = datetime.min
-        kappa = run.get("kappa_score")
-        try:
-            kappa_val = float(kappa) if kappa is not None else None
-        except (ValueError, TypeError):
-            kappa_val = None
         record: dict = {
-            "patient_id": pid,
+            "run_id": run.get("run_id"),
             "status": "CONSENSUS",
-            "kappa": kappa_val,
+            "kappa": _safe_kappa(run.get("kappa_score")),
             "iterations": run.get("iterations", 1),
             "timestamp_str": ts_str,
             "icd_codes": run.get("final_icd_codes", []),
@@ -67,8 +74,7 @@ def refresh_patients_json() -> None:
             "contradiction_points": [],
             "_ts": ts,
         }
-        if pid not in patient_latest or ts > patient_latest[pid]["_ts"]:
-            patient_latest[pid] = record
+        patient_runs.setdefault(pid, []).append(record)
 
     for run in _parse_jsonl(DISAGREEMENT_LOG):
         pid = run.get("patient_id")
@@ -79,16 +85,11 @@ def refresh_patients_json() -> None:
             ts = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
         except ValueError:
             ts = datetime.min
-        kappa = run.get("final_kappa")
-        try:
-            kappa_val = float(kappa) if kappa is not None else None
-        except (ValueError, TypeError):
-            kappa_val = None
         diag_final = run.get("diagnostician_final_position") or {}
         record = {
-            "patient_id": pid,
+            "run_id": run.get("run_id"),
             "status": "ESCALATED",
-            "kappa": kappa_val,
+            "kappa": _safe_kappa(run.get("final_kappa")),
             "iterations": run.get("iterations", 3),
             "timestamp_str": ts_str,
             "icd_codes": diag_final.get("icd_codes_cited", []),
@@ -100,17 +101,35 @@ def refresh_patients_json() -> None:
             "contradiction_points": run.get("contradiction_points", []),
             "_ts": ts,
         }
-        if pid not in patient_latest or ts > patient_latest[pid]["_ts"]:
-            patient_latest[pid] = record
+        patient_runs.setdefault(pid, []).append(record)
 
-    sorted_patients = sorted(patient_latest.values(), key=lambda p: p["patient_id"])
-    for p in sorted_patients:
-        p.pop("_ts", None)
+    patients_out: list[dict] = []
+    for pid in sorted(patient_runs.keys()):
+        runs = sorted(patient_runs[pid], key=lambda r: r["_ts"], reverse=True)
+        for r in runs:
+            r.pop("_ts", None)
+        latest = runs[0]
+        patients_out.append({
+            "patient_id": pid,
+            "status": latest["status"],
+            "kappa": latest["kappa"],
+            "iterations": latest["iterations"],
+            "timestamp_str": latest["timestamp_str"],
+            "icd_codes": latest["icd_codes"],
+            "grounding": latest["grounding"],
+            "diagnosis": latest["diagnosis"],
+            "evidence": latest["evidence"],
+            "diagnostician_position": latest["diagnostician_position"],
+            "auditor_position": latest["auditor_position"],
+            "contradiction_points": latest["contradiction_points"],
+            "run_count": len(runs),
+            "runs": runs,
+        })
 
-    total = len(sorted_patients)
-    consensus_count = sum(1 for p in sorted_patients if p["status"] == "CONSENSUS")
+    total = len(patients_out)
+    consensus_count = sum(1 for p in patients_out if p["status"] == "CONSENSUS")
     escalated_count = total - consensus_count
-    valid_kappas = [p["kappa"] for p in sorted_patients if p["kappa"] is not None]
+    valid_kappas = [p["kappa"] for p in patients_out if p["kappa"] is not None]
     avg_kappa = round(sum(valid_kappas) / len(valid_kappas), 3) if valid_kappas else 0.0
 
     output = {
@@ -122,7 +141,7 @@ def refresh_patients_json() -> None:
             "consensus_rate_pct": round(consensus_count / total * 100, 1) if total > 0 else 0.0,
             "avg_kappa": avg_kappa,
         },
-        "patients": sorted_patients,
+        "patients": patients_out,
     }
 
     REPORTS_DIR.mkdir(exist_ok=True)

@@ -182,6 +182,7 @@
         let patients = [];
         let currentStatusFilter = 'ALL';
         let lastGeneratedAt = null;
+        let currentModalPatient = null;
 
         // ── Data loading ──────────────────────────────────────────────────────
         async function loadData() {
@@ -239,6 +240,9 @@
                     : 'bg-amber-500/10 text-amber-400 border-amber-500/20';
                 const badgeText = p.status === 'CONSENSUS' ? '🟢 Consensus' : '🔴 Escalated';
                 const kappaText = p.kappa != null ? p.kappa.toFixed(3) : '—';
+                const runsBadge = (p.run_count && p.run_count > 1)
+                    ? `<span class="ml-1.5 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-indigo-500/10 text-indigo-400 border border-indigo-500/20" title="${p.run_count} audit runs">⟳ ${p.run_count}</span>`
+                    : '';
 
                 const codeBadges = (p.icd_codes || []).slice(0, 5).map(c =>
                     `<span class="px-2 py-0.5 bg-slate-950/60 rounded text-slate-300 font-mono text-xs border border-slate-800">${c}</span>`
@@ -247,7 +251,7 @@
                     ? `<span class="text-xs text-slate-500 font-medium"> +${p.icd_codes.length - 5} more</span>` : '';
 
                 tr.innerHTML = `
-                    <td class="p-6 font-bold text-white">${p.patient_id}</td>
+                    <td class="p-6 font-bold text-white">${p.patient_id}${runsBadge}</td>
                     <td class="p-6">
                         <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border ${badgeClass}">${badgeText}</span>
                     </td>
@@ -294,71 +298,258 @@
             renderTable(filtered);
         }
 
+        // ── Helpers ───────────────────────────────────────────────────────────
+        function codeBadge(code, cls = 'bg-slate-950/60 text-slate-300 border-slate-700') {
+            return `<span class="px-2 py-0.5 rounded-lg font-mono text-xs border ${cls}">${code}</span>`;
+        }
+
+        function sectionHeader(text) {
+            return `<h4 class="text-[10px] font-bold uppercase tracking-widest text-indigo-400 mb-2">${text}</h4>`;
+        }
+
+        function confBar(score) {
+            const pct = Math.round((score || 0) * 100);
+            const col = pct >= 85 ? 'bg-emerald-400' : pct >= 65 ? 'bg-amber-400' : 'bg-rose-500';
+            return `<div class="flex items-center gap-2 mt-1">
+                <div class="flex-1 h-1.5 bg-slate-800 rounded-full overflow-hidden">
+                    <div class="${col} h-full rounded-full" style="width:${pct}%"></div>
+                </div>
+                <span class="text-xs font-semibold text-slate-300">${pct}%</span>
+            </div>`;
+        }
+
+        // Parse raw evidence strings into structured objects.
+        // Handles formats produced by EHRPatternScanner:
+        //   "hadm=X admit=DATE type=TYPE has diagnosis CODE (Desc)"
+        //   "hadm=X admit=DATE type=TYPE icd_codes: CODE (Desc)"
+        //   "hadm=X admit=DATE type=TYPE, diagnoses: code=CODE"
+        function parseEvidence(raw) {
+            const hadm      = (raw.match(/hadm=(\d+)/)                          || [])[1] || null;
+            const dateMatch =  raw.match(/admit=(\d{4}-\d{2}-\d{2})\s+(\d{2}:\d{2})/);
+            const date      = dateMatch ? dateMatch[1] : null;
+            const time      = dateMatch ? dateMatch[2] : null;
+            const typeMatch =  raw.match(/type=(EW EMER\.|URGENT|ELECTIVE|OBSERVATION|EU OBSERVE\w*|[\w ]+?)(?=[\s,])/i);
+            const admitType = typeMatch ? typeMatch[1].trim() : null;
+
+            // ICD code + description — try several patterns
+            let code = null, desc = null;
+            const patterns = [
+                /has diagnosis\s+([A-Z0-9]+)\s*\(([^)]+)\)/i,
+                /(?:icd_codes|diagnoses):\s+([A-Z0-9]+)\s*\(([^)]+)\)/i,
+                /diagnosis\s+([A-Z0-9]+)\s*\(([^)]+)\)/i,
+            ];
+            for (const pat of patterns) {
+                const m = raw.match(pat);
+                if (m) { code = m[1]; desc = m[2]; break; }
+            }
+            // Fallback: code only, no description
+            if (!code) {
+                const m = raw.match(/(?:code=|diagnosis\s+)([A-Z0-9]+)/i);
+                if (m) code = m[1];
+            }
+
+            return { hadm, date, time, admitType, code, desc };
+        }
+
+        function admitTypeBadge(type) {
+            if (!type) return '';
+            const t = type.toUpperCase();
+            if (t.includes('URGENT'))   return `<span class="px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-rose-500/15 text-rose-300 border border-rose-500/30">${type}</span>`;
+            if (t.includes('EW') || t.includes('EMER')) return `<span class="px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-amber-500/15 text-amber-300 border border-amber-500/30">${type}</span>`;
+            if (t.includes('ELECTIVE')) return `<span class="px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-blue-500/15 text-blue-300 border border-blue-500/30">${type}</span>`;
+            return `<span class="px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-slate-700 text-slate-300">${type}</span>`;
+        }
+
+        function renderEvidenceCard(raw) {
+            const e = parseEvidence(raw);
+
+            // Format date for humans: "Aug 4, 2137 · 00:07"
+            let dateLabel = '';
+            if (e.date) {
+                try {
+                    const d = new Date(e.date + 'T00:00:00');
+                    dateLabel = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+                    if (e.time) dateLabel += ' · ' + e.time;
+                } catch(_) { dateLabel = e.date; }
+            }
+
+            // If we couldn't parse any structure, fall back to plain text
+            if (!e.hadm && !e.code) {
+                return `<div class="py-2 px-3 rounded-lg bg-slate-900/40 border border-slate-800 text-slate-400 text-xs leading-relaxed">${raw}</div>`;
+            }
+
+            return `<div class="rounded-xl border border-slate-800 bg-slate-900/40 overflow-hidden">
+                <div class="flex items-center gap-2 px-3 py-2 bg-slate-950/40 border-b border-slate-800/60 flex-wrap">
+                    ${admitTypeBadge(e.admitType)}
+                    ${e.hadm ? `<span class="text-[10px] text-slate-500 font-mono">Adm #${e.hadm}</span>` : ''}
+                    ${dateLabel ? `<span class="text-[10px] text-slate-500 ml-auto">${dateLabel}</span>` : ''}
+                </div>
+                <div class="px-3 py-2.5 flex items-start gap-3">
+                    ${e.code ? `<span class="font-mono text-xs font-bold text-white bg-slate-800 border border-slate-700 px-2 py-0.5 rounded shrink-0">${e.code}</span>` : ''}
+                    ${e.desc
+                        ? `<span class="text-slate-200 text-xs leading-snug">${e.desc}</span>`
+                        : `<span class="text-slate-500 text-xs italic">No description available</span>`}
+                </div>
+            </div>`;
+        }
+
+        function agentCard(pos, label, accentClass, borderClass) {
+            if (!pos) return `<div class="p-4 text-slate-500 italic text-xs">${label} data not available.</div>`;
+            const codes    = pos.icd_codes_cited || [];
+            const evidence = pos.evidence_chain  || [];
+            const unverified = (pos.unverified_codes || []).filter(u => typeof u === 'string' && u.length < 80);
+
+            const codeHtml = codes.length
+                ? codes.map(c => codeBadge(c)).join(' ')
+                : '<span class="text-slate-500 italic text-xs">No codes cited</span>';
+
+            const evidHtml = evidence.map(ev => renderEvidenceCard(ev)).join('');
+
+            const unverHtml = unverified.length
+                ? unverified.map(u => `<div class="flex gap-2 items-start"><span class="text-rose-400 shrink-0">✗</span><span class="text-slate-400 text-xs">${u}</span></div>`).join('')
+                : '';
+
+            return `<div class="rounded-xl border ${borderClass} bg-slate-950/30 overflow-hidden">
+                <div class="px-4 py-3 ${accentClass} flex items-center justify-between">
+                    <span class="text-xs font-bold uppercase tracking-wider">${label}</span>
+                    <span class="text-xs text-slate-400">confidence</span>
+                </div>
+                <div class="px-4 pt-3 pb-1">
+                    ${confBar(pos.confidence_score)}
+                </div>
+                <div class="p-4 space-y-4">
+                    <div>
+                        ${sectionHeader('Diagnosis Hypothesis')}
+                        <p class="text-slate-300 text-xs leading-relaxed italic">${pos.diagnosis_hypothesis || '—'}</p>
+                    </div>
+                    <div>
+                        ${sectionHeader('ICD Codes Cited')}
+                        <div class="flex flex-wrap gap-1.5">${codeHtml}</div>
+                    </div>
+                    ${evidHtml ? `<div>${sectionHeader('EHR Evidence Chain')}<div class="space-y-2">${evidHtml}</div></div>` : ''}
+                    ${unverHtml ? `<div>${sectionHeader('Flagged / Unverified')}<div class="space-y-1">${unverHtml}</div></div>` : ''}
+                </div>
+            </div>`;
+        }
+
         // ── Modal ─────────────────────────────────────────────────────────────
         function showModal(patientId) {
-            const p = patients.find(x => x.patient_id === patientId);
-            if (!p) return;
-
-            document.getElementById('modalTitle').innerText = `Clinical Audit: Patient ${p.patient_id}`;
-            const dateStr = p.timestamp_str ? p.timestamp_str.split('.')[0].replace('T', ' ') + ' UTC' : 'Unknown date';
-            document.getElementById('modalTimestamp').innerText = `Audited on: ${dateStr}`;
-
-            const badge = document.getElementById('modalStatusBadge');
-            badge.innerText = p.status === 'CONSENSUS' ? '✓ Consensus' : '⚠ Escalated';
-            badge.className = p.status === 'CONSENSUS'
-                ? 'inline-block mt-1 font-semibold text-emerald-400'
-                : 'inline-block mt-1 font-semibold text-amber-500';
-
-            document.getElementById('modalKappa').innerText = p.kappa != null ? p.kappa.toFixed(3) : '—';
-            document.getElementById('modalIterations').innerText = `${p.iterations} negotiation round(s)`;
-
-            const hypothesisBox = document.getElementById('modalHypothesis');
-            hypothesisBox.innerText = p.status === 'CONSENSUS'
-                ? `Audit consensus reached. All agents agreed on the patient diagnosis and ICD code assignments after ${p.iterations} negotiation iteration(s).`
-                : p.diagnosis || 'Diagnosis discrepancies between agents required escalation to physician review.';
-
-            const codesBox = document.getElementById('modalCodes');
-            codesBox.innerHTML = '';
-            if (!p.icd_codes || p.icd_codes.length === 0) {
-                codesBox.innerHTML = '<span class="text-slate-500 italic">No codes recorded</span>';
-            } else {
-                p.icd_codes.forEach(c => {
-                    const span = document.createElement('span');
-                    span.className = 'px-3 py-1 bg-slate-950/60 text-slate-300 font-mono text-xs rounded-xl border border-slate-800 shadow-sm';
-                    span.innerText = c;
-                    codesBox.appendChild(span);
-                });
-            }
-
-            const listEl = document.getElementById('modalEvidenceList');
-            listEl.innerHTML = '';
-            if (p.status === 'CONSENSUS' && p.grounding && p.grounding.length > 0) {
-                p.grounding.forEach(g => {
-                    const item = document.createElement('div');
-                    item.className = 'p-3.5 rounded-xl bg-slate-950/30 border border-slate-800 flex items-start justify-between gap-4';
-                    const stageBadge = g.stage
-                        ? `<span class="px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-wider bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">Stage ${g.stage} Verified</span>`
-                        : `<span class="px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-wider bg-rose-500/10 text-rose-400 border border-rose-500/20">Unverified</span>`;
-                    item.innerHTML = `
-                        <div class="flex items-center gap-1">
-                            <span class="px-2 py-0.5 bg-slate-900 rounded font-mono text-xs text-white border border-slate-800">ICD-${g.icd_version} ${g.icd_code}</span>
-                            ${g.title ? `<span class="text-slate-300 ml-2 font-medium">${g.title}</span>` : '<span class="text-slate-500 ml-2 italic">Unlabeled medical concept</span>'}
-                        </div>
-                        <div>${stageBadge}</div>`;
-                    listEl.appendChild(item);
-                });
-            } else if (p.evidence && p.evidence.length > 0) {
-                p.evidence.forEach(ev => {
-                    const item = document.createElement('div');
-                    item.className = 'p-3.5 rounded-xl bg-slate-950/30 border border-slate-800 flex items-start gap-3';
-                    item.innerHTML = `<span class="text-amber-500 shrink-0">✦</span><p class="text-slate-300 leading-relaxed text-xs">${ev}</p>`;
-                    listEl.appendChild(item);
-                });
-            } else {
-                listEl.innerHTML = '<div class="p-4 bg-slate-950/20 text-slate-500 italic text-center rounded-xl border border-slate-800">No additional evidence records.</div>';
-            }
-
+            currentModalPatient = patients.find(x => x.patient_id === patientId);
+            if (!currentModalPatient) return;
+            document.getElementById('modalTitle').innerText = `Clinical Audit — Patient ${patientId}`;
+            renderModalForRun(currentModalPatient, 0);
             document.getElementById('detailModal').classList.remove('hidden');
+        }
+
+        function switchRun(newIndex) {
+            if (!currentModalPatient) return;
+            renderModalForRun(currentModalPatient, parseInt(newIndex));
+        }
+
+        function renderModalForRun(patient, runIndex) {
+            const runs = patient.runs && patient.runs.length ? patient.runs : [patient];
+            const run  = runs[Math.min(runIndex, runs.length - 1)];
+            const totalRuns = patient.run_count || runs.length;
+
+            const dateStr = run.timestamp_str
+                ? run.timestamp_str.split('.')[0].replace('T', ' ') + ' UTC'
+                : 'Unknown date';
+            document.getElementById('modalTimestamp').innerText = `Audited: ${dateStr}`;
+
+            let runSelectorHtml = '';
+            if (totalRuns > 1) {
+                const options = runs.map((r, i) => {
+                    const ts    = r.timestamp_str ? r.timestamp_str.split('.')[0].replace('T', ' ') : '?';
+                    const kLbl  = r.kappa != null ? `κ=${r.kappa.toFixed(3)}` : 'κ=?';
+                    const icon  = r.status === 'CONSENSUS' ? '✓' : '⚠';
+                    const sel   = i === runIndex ? 'selected' : '';
+                    return `<option value="${i}" ${sel}>${icon} Run #${totalRuns - i} — ${ts} · ${kLbl}</option>`;
+                }).join('');
+                runSelectorHtml = `<div class="px-6 py-3 border-b border-slate-800 bg-slate-900/60 flex items-center gap-3">
+                    <span class="text-[10px] font-bold uppercase tracking-widest text-indigo-400 shrink-0">Audit History</span>
+                    <select onchange="switchRun(this.value)" class="flex-1 bg-slate-950 border border-slate-700 text-slate-200 text-xs rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer">${options}</select>
+                    <span class="text-[10px] text-slate-500 shrink-0">${totalRuns} total runs</span>
+                </div>`;
+            }
+
+            document.getElementById('modalBody').innerHTML = runSelectorHtml + buildRunContent(run);
+        }
+
+        function buildRunContent(run) {
+            const isConsensus = run.status === 'CONSENSUS';
+            const kappa = run.kappa != null ? run.kappa.toFixed(3) : '—';
+
+            const statusStrip = isConsensus
+                ? `<div class="px-6 py-3 bg-emerald-500/10 border-b border-emerald-500/20 flex items-center gap-3">
+                    <span class="text-emerald-400 font-bold text-sm">✓ Consensus Reached</span>
+                    <span class="text-slate-500 text-xs">Both agents converged after ${run.iterations} negotiation round(s)</span>
+                    <span class="ml-auto text-emerald-400 font-mono text-sm font-bold">κ = ${kappa}</span>
+                   </div>`
+                : `<div class="px-6 py-3 bg-amber-500/10 border-b border-amber-500/20 flex items-center gap-3">
+                    <span class="text-amber-400 font-bold text-sm">⚠ Escalated — Physician Review Required</span>
+                    <span class="ml-auto text-amber-400 font-mono text-sm font-bold">κ = ${kappa}</span>
+                   </div>`;
+
+            let contradictionHtml = '';
+            if (!isConsensus && run.contradiction_points && run.contradiction_points.length) {
+                const items = run.contradiction_points.map(pt =>
+                    `<div class="flex gap-2 items-start"><span class="text-amber-400 shrink-0">▸</span><span class="text-slate-300 text-xs">${pt}</span></div>`
+                ).join('');
+                contradictionHtml = `<div class="px-6 py-4 border-b border-slate-800 bg-slate-900/40">
+                    ${sectionHeader('Why Agents Disagreed')}
+                    <div class="space-y-1">${items}</div>
+                </div>`;
+            }
+
+            const diagCard  = agentCard(run.diagnostician_position, 'Diagnostician Agent',
+                'bg-indigo-500/10 text-indigo-300', 'border-indigo-500/20');
+            const auditCard = agentCard(run.auditor_position, 'Auditor Agent',
+                'bg-violet-500/10 text-violet-300', 'border-violet-500/20');
+
+            const agentGrid = `<div class="px-6 py-5 border-b border-slate-800 space-y-4">
+                ${sectionHeader('Agent Reasoning & Chain of Thought')}
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">${diagCard}${auditCard}</div>
+            </div>`;
+
+            let codeOverlapHtml = '';
+            const dPos = run.diagnostician_position;
+            const aPos = run.auditor_position;
+            if (dPos && aPos) {
+                const dSet = new Set(dPos.icd_codes_cited || []);
+                const aSet = new Set(aPos.icd_codes_cited || []);
+                const agreed    = [...dSet].filter(c => aSet.has(c));
+                const diagOnly  = [...dSet].filter(c => !aSet.has(c));
+                const auditOnly = [...aSet].filter(c => !dSet.has(c));
+                const agreedBadges    = agreed.map(c    => codeBadge(c, 'bg-emerald-500/10 text-emerald-300 border-emerald-500/20')).join(' ');
+                const diagOnlyBadges  = diagOnly.map(c  => codeBadge(c, 'bg-indigo-500/10 text-indigo-300 border-indigo-500/20')).join(' ');
+                const auditOnlyBadges = auditOnly.map(c => codeBadge(c, 'bg-violet-500/10 text-violet-300 border-violet-500/20')).join(' ');
+                codeOverlapHtml = `<div class="px-6 py-5 border-b border-slate-800 space-y-3">
+                    ${sectionHeader('Code Agreement Analysis')}
+                    ${agreed.length    ? `<div><span class="text-[10px] font-semibold text-emerald-400 uppercase tracking-wider">Both agreed (${agreed.length})</span><div class="flex flex-wrap gap-1.5 mt-1.5">${agreedBadges}</div></div>` : ''}
+                    ${diagOnly.length  ? `<div><span class="text-[10px] font-semibold text-indigo-400 uppercase tracking-wider">Diagnostician only (${diagOnly.length})</span><div class="flex flex-wrap gap-1.5 mt-1.5">${diagOnlyBadges}</div></div>` : ''}
+                    ${auditOnly.length ? `<div><span class="text-[10px] font-semibold text-violet-400 uppercase tracking-wider">Auditor only (${auditOnly.length})</span><div class="flex flex-wrap gap-1.5 mt-1.5">${auditOnlyBadges}</div></div>` : ''}
+                </div>`;
+            }
+
+            let groundingHtml = '';
+            if (isConsensus && run.grounding && run.grounding.length) {
+                const rows = run.grounding.map(g => {
+                    const stageBadge = g.stage
+                        ? `<span class="px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">Stage ${g.stage} ✓</span>`
+                        : `<span class="px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase bg-rose-500/10 text-rose-400 border border-rose-500/20">Unverified</span>`;
+                    return `<div class="flex items-center justify-between py-1.5 border-b border-slate-800/60 last:border-0 gap-3">
+                        <span class="font-mono text-xs text-white bg-slate-900 px-2 py-0.5 rounded border border-slate-700 shrink-0">ICD-${g.icd_version} ${g.icd_code}</span>
+                        ${g.title ? `<span class="text-slate-400 text-xs flex-1">${g.title}</span>` : '<span class="text-slate-600 text-xs flex-1 italic">—</span>'}
+                        ${stageBadge}
+                    </div>`;
+                }).join('');
+                groundingHtml = `<div class="px-6 py-5">
+                    ${sectionHeader('NLM / ICD Grounding Verification')}
+                    <div>${rows}</div>
+                </div>`;
+            }
+
+            return statusStrip + contradictionHtml + agentGrid + codeOverlapHtml + groundingHtml;
         }
 
         function hideModal()  { document.getElementById('detailModal').classList.add('hidden'); }
