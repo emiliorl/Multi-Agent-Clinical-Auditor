@@ -45,9 +45,16 @@ def log_consensus(
         "final_icd_codes": final_codes,
         "grounding_table": grounding_table,
         "verification_tokens": verification_tokens,
+        "diagnostician_position": diagnostician_output.model_dump(),
+        "auditor_position": auditor_output.model_dump(),
     }
     with open(_REASONING_LOG, "a", encoding="utf-8") as f:
         f.write(json.dumps(record) + "\n")
+    try:
+        from src.dashboard_sync import refresh_patients_json
+        refresh_patients_json()
+    except Exception:
+        pass
     return run_id
 
 
@@ -76,4 +83,9 @@ def log_disagreement(
     }
     with open(_DISAGREEMENT_LOG, "a", encoding="utf-8") as f:
         f.write(json.dumps(record) + "\n")
+    try:
+        from src.dashboard_sync import refresh_patients_json
+        refresh_patients_json()
+    except Exception:
+        pass
     return run_id

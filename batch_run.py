@@ -314,6 +314,12 @@ def main() -> None:
     report_path = _save_report(results, batch_ts)
     print(f"[BATCH] Report saved → {report_path}\n")
 
+    # Regenerate dashboard after every batch so it always reflects the latest logs
+    compile_script = Path(__file__).parent / "compile_dashboard.py"
+    if compile_script.exists():
+        print("[BATCH] Regenerating dashboard...")
+        subprocess.run([PYTHON, str(compile_script)], check=False)
+
 
 if __name__ == "__main__":
     main()

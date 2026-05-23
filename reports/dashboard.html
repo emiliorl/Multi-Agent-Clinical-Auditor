@@ -4,7 +4,6 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Clinical Audit Dashboard</title>
-    <!-- Outfit Font & Tailwind CSS -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
@@ -12,13 +11,7 @@
     <script>
         tailwind.config = {
             darkMode: 'class',
-            theme: {
-                extend: {
-                    fontFamily: {
-                        sans: ['Outfit', 'sans-serif'],
-                    },
-                }
-            }
+            theme: { extend: { fontFamily: { sans: ['Outfit', 'sans-serif'] } } }
         }
     </script>
     <style>
@@ -32,105 +25,94 @@
             -webkit-backdrop-filter: blur(16px);
             border: 1px solid rgba(255, 255, 255, 0.08);
         }
-        .glass-card {
-            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-        }
+        .glass-card { transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); }
         .glass-card:hover {
             transform: translateY(-4px);
             border-color: rgba(99, 102, 241, 0.3);
             box-shadow: 0 12px 30px -10px rgba(99, 102, 241, 0.2);
         }
-        .custom-scrollbar::-webkit-scrollbar {
-            width: 6px;
-            height: 6px;
-        }
-        .custom-scrollbar::-webkit-scrollbar-track {
-            background: rgba(0, 0, 0, 0.1);
-        }
-        .custom-scrollbar::-webkit-scrollbar-thumb {
-            background: rgba(255, 255, 255, 0.15);
-            border-radius: 9999px;
-        }
-        .custom-scrollbar::-webkit-scrollbar-thumb:hover {
-            background: rgba(255, 255, 255, 0.3);
-        }
+        .custom-scrollbar::-webkit-scrollbar { width: 6px; height: 6px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: rgba(0,0,0,0.1); }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.15); border-radius: 9999px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.3); }
+        @keyframes pulse-dot { 0%,100%{opacity:1} 50%{opacity:0.4} }
+        .live-dot { animation: pulse-dot 2s ease-in-out infinite; }
     </style>
 </head>
 <body class="text-slate-100 font-sans custom-scrollbar antialiased p-6 sm:p-10">
 
     <div class="max-w-7xl mx-auto space-y-10">
-        
+
         <!-- Header -->
         <header class="flex flex-col md:flex-row md:items-center md:justify-between gap-4 pb-6 border-b border-slate-800">
             <div>
                 <div class="flex items-center gap-3">
                     <span class="px-3 py-1 text-xs font-semibold tracking-wider text-indigo-400 bg-indigo-500/10 rounded-full uppercase">Operations Room</span>
+                    <span class="flex items-center gap-1.5 text-xs text-emerald-400 font-medium">
+                        <span class="live-dot w-2 h-2 rounded-full bg-emerald-400 inline-block"></span>
+                        Live
+                    </span>
                 </div>
                 <h1 class="text-3xl sm:text-4xl font-bold tracking-tight text-white mt-2">Multi-Agent Clinical Auditor</h1>
                 <p class="text-slate-400 mt-1">Unified consensus auditing dashboard across longitudinal EHR patient cohorts</p>
             </div>
             <div class="text-right">
-                <span class="text-xs text-slate-500 block">LAST REFRESHED</span>
-                <span class="text-sm font-medium text-slate-300">2026-05-20 16:37:55</span>
+                <span class="text-xs text-slate-500 block">LAST UPDATED</span>
+                <span id="lastUpdated" class="text-sm font-medium text-slate-300">—</span>
             </div>
         </header>
 
-        <!-- Stats Cards Grid -->
+        <!-- Stats Cards -->
         <section class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-            
-            <!-- Total Audited -->
+
             <div class="glass glass-card p-6 rounded-2xl flex flex-col justify-between">
                 <span class="text-sm font-medium text-slate-400 uppercase tracking-wider">Total Cohort Audited</span>
                 <div class="flex items-baseline gap-2 mt-4">
-                    <span class="text-4xl font-bold text-white">10</span>
+                    <span id="stat-total" class="text-4xl font-bold text-white">—</span>
                     <span class="text-slate-500 text-sm">Patients</span>
                 </div>
                 <div class="h-1.5 w-full bg-slate-800 rounded-full mt-4 overflow-hidden">
-                    <div class="h-full bg-blue-500 rounded-full" style="width: 100%"></div>
+                    <div class="h-full bg-blue-500 rounded-full" style="width:100%"></div>
                 </div>
             </div>
 
-            <!-- Consensus Rate -->
             <div class="glass glass-card p-6 rounded-2xl flex flex-col justify-between">
                 <span class="text-sm font-medium text-slate-400 uppercase tracking-wider">Consensus Accuracy</span>
                 <div class="flex items-baseline gap-2 mt-4">
-                    <span class="text-4xl font-bold text-emerald-400">90.0%</span>
-                    <span class="text-slate-500 text-sm">9/10 reached</span>
+                    <span id="stat-consensus-pct" class="text-4xl font-bold text-emerald-400">—</span>
+                    <span id="stat-consensus-sub" class="text-slate-500 text-sm">—</span>
                 </div>
                 <div class="h-1.5 w-full bg-slate-800 rounded-full mt-4 overflow-hidden">
-                    <div class="h-full bg-emerald-400 rounded-full" style="width: 90.0%"></div>
+                    <div id="bar-consensus" class="h-full bg-emerald-400 rounded-full" style="width:0%"></div>
                 </div>
             </div>
 
-            <!-- Escalated count -->
             <div class="glass glass-card p-6 rounded-2xl flex flex-col justify-between">
                 <span class="text-sm font-medium text-slate-400 uppercase tracking-wider">Physician Escalations</span>
                 <div class="flex items-baseline gap-2 mt-4">
-                    <span class="text-4xl font-bold text-amber-500">1</span>
+                    <span id="stat-escalated" class="text-4xl font-bold text-amber-500">—</span>
                     <span class="text-slate-500 text-sm">Review required</span>
                 </div>
                 <div class="h-1.5 w-full bg-slate-800 rounded-full mt-4 overflow-hidden">
-                    <div class="h-full bg-amber-500 rounded-full" style="width: 10.0%"></div>
+                    <div id="bar-escalated" class="h-full bg-amber-500 rounded-full" style="width:0%"></div>
                 </div>
             </div>
 
-            <!-- Avg Kappa -->
             <div class="glass glass-card p-6 rounded-2xl flex flex-col justify-between">
                 <span class="text-sm font-medium text-slate-400 uppercase tracking-wider">Mean Agreement Score</span>
                 <div class="flex items-baseline gap-2 mt-4">
-                    <span class="text-4xl font-bold text-indigo-400">κ=0.806</span>
+                    <span id="stat-kappa" class="text-4xl font-bold text-indigo-400">—</span>
                 </div>
                 <div class="h-1.5 w-full bg-slate-800 rounded-full mt-4 overflow-hidden">
-                    <div class="h-full bg-indigo-400 rounded-full" style="width: 80%"></div>
+                    <div id="bar-kappa" class="h-full bg-indigo-400 rounded-full" style="width:0%"></div>
                 </div>
             </div>
 
         </section>
 
-        <!-- Main Content Table and Search -->
+        <!-- Table -->
         <main class="glass rounded-2xl overflow-hidden">
-            
-            <!-- Controls Bar -->
+
             <div class="p-6 border-b border-slate-800 bg-slate-900/40 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
                 <div class="relative max-w-md w-full">
                     <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
@@ -138,15 +120,15 @@
                     </div>
                     <input type="text" id="searchInput" oninput="filterPatients()" placeholder="Search by Patient ID, codes, or diagnosis..." class="w-full bg-slate-950/60 border border-slate-800 text-slate-200 pl-10 pr-4 py-2 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent text-sm">
                 </div>
-                
                 <div class="flex items-center gap-3">
-                    <button id="btn-all" onclick="setStatusFilter('ALL')" class="px-4 py-1.5 rounded-lg text-xs font-semibold transition bg-indigo-600 text-white shadow-lg">All Statuses</button>
+                    <button id="btn-all"       onclick="setStatusFilter('ALL')"       class="px-4 py-1.5 rounded-lg text-xs font-semibold transition bg-indigo-600 text-white shadow-lg">All Statuses</button>
                     <button id="btn-consensus" onclick="setStatusFilter('CONSENSUS')" class="px-4 py-1.5 rounded-lg text-xs font-semibold text-slate-400 hover:bg-slate-800 transition">Consensus</button>
                     <button id="btn-escalated" onclick="setStatusFilter('ESCALATED')" class="px-4 py-1.5 rounded-lg text-xs font-semibold text-slate-400 hover:bg-slate-800 transition">Escalated</button>
                 </div>
             </div>
 
-            <!-- Table Wrapper -->
+            <div id="loadingBanner" class="p-6 text-center text-slate-500 text-sm">Loading audit data…</div>
+
             <div class="overflow-x-auto custom-scrollbar">
                 <table class="w-full text-left border-collapse">
                     <thead>
@@ -159,76 +141,36 @@
                             <th class="p-6 text-right">Actions</th>
                         </tr>
                     </thead>
-                    <tbody id="tableBody" class="divide-y divide-slate-800/60">
-                        <!-- Dynamic content loaded via JS -->
-                    </tbody>
+                    <tbody id="tableBody" class="divide-y divide-slate-800/60"></tbody>
                 </table>
             </div>
-            
+
             <div id="noResults" class="hidden p-12 text-center text-slate-500">
                 No audited patients matched your search criteria.
             </div>
-            
+
         </main>
-        
-        <!-- Detailed Modal -->
+
+        <!-- Modal -->
         <div id="detailModal" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm hidden" onclick="closeModal(event)">
-            <div class="glass max-w-3xl w-full max-h-[85vh] rounded-2xl overflow-hidden flex flex-col shadow-2xl" onclick="event.stopPropagation()">
+            <div class="glass max-w-4xl w-full max-h-[90vh] rounded-2xl overflow-hidden flex flex-col shadow-2xl" onclick="event.stopPropagation()">
+
                 <!-- Modal Header -->
-                <div class="p-6 border-b border-slate-800 bg-slate-900/60 flex items-center justify-between">
+                <div class="p-6 border-b border-slate-800 bg-slate-900/60 flex items-start justify-between gap-4 shrink-0">
                     <div>
                         <h3 id="modalTitle" class="text-xl font-bold text-white">Patient Details</h3>
                         <span id="modalTimestamp" class="text-xs text-slate-500 mt-1 block"></span>
                     </div>
-                    <button onclick="hideModal()" class="p-2 hover:bg-slate-800 rounded-lg text-slate-400 hover:text-slate-100 transition">
+                    <button onclick="hideModal()" class="p-2 hover:bg-slate-800 rounded-lg text-slate-400 hover:text-slate-100 transition shrink-0">
                         <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
                     </button>
                 </div>
-                
-                <!-- Modal Body -->
-                <div class="p-6 space-y-6 overflow-y-auto custom-scrollbar text-sm" id="modalBody">
-                    
-                    <!-- Stats summary inside modal -->
-                    <div class="grid grid-cols-3 gap-4 p-4 rounded-xl bg-slate-950/40 border border-slate-800">
-                        <div>
-                            <span class="text-xs text-slate-400 block uppercase font-medium">Audit Status</span>
-                            <span id="modalStatusBadge" class="inline-block mt-1 font-semibold"></span>
-                        </div>
-                        <div>
-                            <span class="text-xs text-slate-400 block uppercase font-medium">Kappa Score</span>
-                            <span id="modalKappa" class="inline-block mt-1 text-base font-bold"></span>
-                        </div>
-                        <div>
-                            <span class="text-xs text-slate-400 block uppercase font-medium">Conversations</span>
-                            <span id="modalIterations" class="inline-block mt-1 text-base font-medium"></span>
-                        </div>
-                    </div>
 
-                    <!-- Hypothesis -->
-                    <div class="space-y-2">
-                        <h4 class="font-bold text-white uppercase text-xs tracking-wider text-indigo-400">Diagnosis Summary / Hypothesis</h4>
-                        <div id="modalHypothesis" class="p-4 rounded-xl bg-slate-900/40 border border-slate-800 text-slate-300 leading-relaxed italic">
-                        </div>
-                    </div>
+                <!-- Modal Body — dynamically populated -->
+                <div class="overflow-y-auto custom-scrollbar flex-1" id="modalBody"></div>
 
-                    <!-- ICD codes -->
-                    <div class="space-y-2">
-                        <h4 class="font-bold text-white uppercase text-xs tracking-wider text-indigo-400">Audited ICD Codes</h4>
-                        <div id="modalCodes" class="flex flex-wrap gap-2">
-                        </div>
-                    </div>
-
-                    <!-- Evidence / Contradictions / Grounding -->
-                    <div id="modalEvidenceSection" class="space-y-2">
-                        <h4 class="font-bold text-white uppercase text-xs tracking-wider text-indigo-400">Evidence Chain & Grounding Audit</h4>
-                        <div id="modalEvidenceList" class="space-y-2.5">
-                        </div>
-                    </div>
-
-                </div>
-                
                 <!-- Modal Footer -->
-                <div class="p-6 border-t border-slate-800 bg-slate-900/30 flex justify-end">
+                <div class="p-5 border-t border-slate-800 bg-slate-900/30 flex justify-end shrink-0">
                     <button onclick="hideModal()" class="px-5 py-2 bg-slate-800 hover:bg-slate-700 transition rounded-xl text-sm font-semibold">Close Details</button>
                 </div>
             </div>
@@ -236,1948 +178,78 @@
 
     </div>
 
-    <!-- Inject Patient JSON Data -->
     <script>
-        const patients = [
-  {
-    "patient_id": "10000032",
-    "status": "CONSENSUS",
-    "kappa": 1.0,
-    "iterations": 2,
-    "timestamp": "2026-05-20T08:01:32.625417+00:00",
-    "timestamp_str": "2026-05-20T08:01:32.625417+00:00",
-    "icd_codes": [
-      "07044",
-      "07054",
-      "07070",
-      "07071",
-      "2761",
-      "2767",
-      "2875",
-      "496",
-      "5715",
-      "5723",
-      "78791",
-      "78959",
-      "7994",
-      "V462"
-    ],
-    "grounding": [
-      {
-        "icd_code": "496",
-        "icd_version": "9",
-        "stage": 1,
-        "verification_token": "NLM_SIG_496"
-      },
-      {
-        "icd_code": "5715",
-        "icd_version": "9",
-        "stage": 1,
-        "verification_token": "NLM_SIG_571_5"
-      },
-      {
-        "icd_code": "V1582",
-        "icd_version": "9",
-        "stage": 1,
-        "verification_token": "NLM_SIG_V15_82"
-      },
-      {
-        "icd_code": "5723",
-        "icd_version": "9",
-        "stage": 1,
-        "verification_token": "NLM_SIG_572_3"
-      },
-      {
-        "icd_code": "78959",
-        "icd_version": "9",
-        "stage": 1,
-        "verification_token": "NLM_SIG_789_59"
-      },
-      {
-        "icd_code": "07070",
-        "icd_version": "9",
-        "stage": 1,
-        "verification_token": "NLM_SIG_070_70"
-      },
-      {
-        "icd_code": "30981",
-        "icd_version": "9",
-        "stage": 1,
-        "verification_token": "NLM_SIG_309_81"
-      },
-      {
-        "icd_code": "29680",
-        "icd_version": "9",
-        "stage": 1,
-        "verification_token": "NLM_SIG_296_80"
-      },
-      {
-        "icd_code": "2875",
-        "icd_version": "9",
-        "stage": 1,
-        "verification_token": "NLM_SIG_287_5"
-      },
-      {
-        "icd_code": "2761",
-        "icd_version": "9",
-        "stage": 1,
-        "verification_token": "NLM_SIG_276_1"
-      },
-      {
-        "icd_code": "V08",
-        "icd_version": "9",
-        "stage": 1,
-        "verification_token": "NLM_SIG_V08_"
-      },
-      {
-        "icd_code": "3051",
-        "icd_version": "9",
-        "stage": 1,
-        "verification_token": "NLM_SIG_305_1"
-      },
-      {
-        "icd_code": "07071",
-        "icd_version": "9",
-        "stage": 1,
-        "verification_token": "NLM_SIG_070_71"
-      },
-      {
-        "icd_code": "7994",
-        "icd_version": "9",
-        "stage": 1,
-        "verification_token": "NLM_SIG_799_4"
-      },
-      {
-        "icd_code": "V462",
-        "icd_version": "9",
-        "stage": 1,
-        "verification_token": "NLM_SIG_V46_2"
-      },
-      {
-        "icd_code": "V4986",
-        "icd_version": "9",
-        "stage": 1,
-        "verification_token": "NLM_SIG_V49_86"
-      },
-      {
-        "icd_code": "07044",
-        "icd_version": "9",
-        "stage": 1,
-        "verification_token": "NLM_SIG_070_44"
-      },
-      {
-        "icd_code": "2767",
-        "icd_version": "9",
-        "stage": 1,
-        "verification_token": "NLM_SIG_276_7"
-      },
-      {
-        "icd_code": "78791",
-        "icd_version": "9",
-        "stage": 1,
-        "verification_token": "NLM_SIG_787_91"
-      },
-      {
-        "icd_code": "07054",
-        "icd_version": "9",
-        "stage": 1,
-        "verification_token": "NLM_SIG_070_54"
-      },
-      {
-        "icd_code": "45829",
-        "icd_version": "9",
-        "stage": 1,
-        "verification_token": "NLM_SIG_458_29"
-      }
-    ],
-    "diagnosis": "Consensus Reached (See patient details)",
-    "evidence": []
-  },
-  {
-    "patient_id": "10001217",
-    "status": "CONSENSUS",
-    "kappa": 0.8333333333333334,
-    "iterations": 1,
-    "timestamp": "2026-05-20T08:03:02.689799+00:00",
-    "timestamp_str": "2026-05-20T08:03:02.689799+00:00",
-    "icd_codes": [
-      "04102",
-      "04109",
-      "04184",
-      "3240",
-      "340",
-      "3484",
-      "3485"
-    ],
-    "grounding": [
-      {
-        "icd_code": "3051",
-        "icd_version": "9",
-        "stage": 1,
-        "verification_token": "NLM_SIG_305_1"
-      },
-      {
-        "icd_code": "5180",
-        "icd_version": "9",
-        "stage": 1,
-        "verification_token": "NLM_SIG_518_0"
-      },
-      {
-        "icd_code": "3485",
-        "icd_version": "9",
-        "stage": 1,
-        "verification_token": "NLM_SIG_348_5"
-      },
-      {
-        "icd_code": "V161",
-        "icd_version": "9",
-        "stage": 1,
-        "verification_token": "NLM_SIG_V16_1"
-      },
-      {
-        "icd_code": "340",
-        "icd_version": "9",
-        "stage": 1,
-        "verification_token": "NLM_SIG_340"
-      },
-      {
-        "icd_code": "3240",
-        "icd_version": "9",
-        "stage": 1,
-        "verification_token": "NLM_SIG_324_0"
-      },
-      {
-        "icd_code": "V168",
-        "icd_version": "9",
-        "stage": 1,
-        "verification_token": "NLM_SIG_V16_8"
-      },
-      {
-        "icd_code": "04102",
-        "icd_version": "9",
-        "stage": 1,
-        "verification_token": "NLM_SIG_041_02"
-      },
-      {
-        "icd_code": "4019",
-        "icd_version": "9",
-        "stage": 1,
-        "verification_token": "NLM_SIG_401_9"
-      },
-      {
-        "icd_code": "3484",
-        "icd_version": "9",
-        "stage": 1,
-        "verification_token": "NLM_SIG_348_4"
-      },
-      {
-        "icd_code": "04109",
-        "icd_version": "9",
-        "stage": 1,
-        "verification_token": "NLM_SIG_041_09"
-      },
-      {
-        "icd_code": "04184",
-        "icd_version": "9",
-        "stage": 1,
-        "verification_token": "NLM_SIG_041_84"
-      }
-    ],
-    "diagnosis": "Consensus Reached (See patient details)",
-    "evidence": []
-  },
-  {
-    "patient_id": "10001725",
-    "status": "CONSENSUS",
-    "kappa": 0.88,
-    "iterations": 2,
-    "timestamp": "2026-05-20T08:08:28.005800+00:00",
-    "timestamp_str": "2026-05-20T08:08:28.005800+00:00",
-    "icd_codes": [
-      "30000",
-      "311",
-      "31401",
-      "49390",
-      "56400",
-      "5641",
-      "V1582"
-    ],
-    "grounding": [
-      {
-        "icd_code": "V1582",
-        "icd_version": "9",
-        "stage": 1,
-        "verification_token": "NLM_SIG_V15_82"
-      },
-      {
-        "icd_code": "53081",
-        "icd_version": "9",
-        "stage": 1,
-        "verification_token": "NLM_SIG_530_81"
-      },
-      {
-        "icd_code": "78052",
-        "icd_version": "9",
-        "stage": 1,
-        "verification_token": "NLM_SIG_780_52"
-      },
-      {
-        "icd_code": "56400",
-        "icd_version": "9",
-        "stage": 1,
-        "verification_token": "NLM_SIG_564_00"
-      },
-      {
-        "icd_code": "6186",
-        "icd_version": "9",
-        "stage": 1,
-        "verification_token": "NLM_SIG_618_6"
-      },
-      {
-        "icd_code": "E9352",
-        "icd_version": "9",
-        "stage": 1,
-        "verification_token": "NLM_SIG_E935_2"
-      },
-      {
-        "icd_code": "31401",
-        "icd_version": "9",
-        "stage": 1,
-        "verification_token": "NLM_SIG_314_01"
-      },
-      {
-        "icd_code": "6185",
-        "icd_version": "9",
-        "stage": 1,
-        "verification_token": "NLM_SIG_618_5"
-      },
-      {
-        "icd_code": "5641",
-        "icd_version": "9",
-        "stage": 1,
-        "verification_token": "NLM_SIG_564_1"
-      },
-      {
-        "icd_code": "7291",
-        "icd_version": "9",
-        "stage": 1,
-        "verification_token": "NLM_SIG_729_1"
-      },
-      {
-        "icd_code": "49390",
-        "icd_version": "9",
-        "stage": 1,
-        "verification_token": "NLM_SIG_493_90"
-      },
-      {
-        "icd_code": "9950",
-        "icd_version": "9",
-        "stage": 1,
-        "verification_token": "NLM_SIG_995_0"
-      },
-      {
-        "icd_code": "311",
-        "icd_version": "9",
-        "stage": 1,
-        "verification_token": "NLM_SIG_311"
-      },
-      {
-        "icd_code": "3331",
-        "icd_version": "9",
-        "stage": 1,
-        "verification_token": "NLM_SIG_333_1"
-      },
-      {
-        "icd_code": "78829",
-        "icd_version": "9",
-        "stage": 1,
-        "verification_token": "NLM_SIG_788_29"
-      },
-      {
-        "icd_code": "V1041",
-        "icd_version": "9",
-        "stage": 1,
-        "verification_token": "NLM_SIG_V10_41"
-      },
-      {
-        "icd_code": "4571",
-        "icd_version": "9",
-        "stage": 1,
-        "verification_token": "NLM_SIG_457_1"
-      },
-      {
-        "icd_code": "30000",
-        "icd_version": "9",
-        "stage": 1,
-        "verification_token": "NLM_SIG_300_00"
-      }
-    ],
-    "diagnosis": "Consensus Reached (See patient details)",
-    "evidence": []
-  },
-  {
-    "patient_id": "10002428",
-    "status": "CONSENSUS",
-    "kappa": 1.0,
-    "iterations": 3,
-    "timestamp": "2026-05-20T08:13:57.074239+00:00",
-    "timestamp_str": "2026-05-20T08:13:57.074239+00:00",
-    "icd_codes": [
-      "00845",
-      "0383",
-      "2859",
-      "51881",
-      "5990",
-      "7102",
-      "78552",
-      "99591",
-      "99592",
-      "E039",
-      "I10",
-      "K922",
-      "M8008XA",
-      "Z931"
-    ],
-    "grounding": [
-      {
-        "icd_code": "5990",
-        "icd_version": "9",
-        "stage": 1,
-        "verification_token": "NLM_SIG_599_0"
-      },
-      {
-        "icd_code": "7102",
-        "icd_version": "9",
-        "stage": 1,
-        "verification_token": "NLM_SIG_710_2"
-      },
-      {
-        "icd_code": "4241",
-        "icd_version": "9",
-        "stage": 1,
-        "verification_token": "NLM_SIG_424_1"
-      },
-      {
-        "icd_code": "2449",
-        "icd_version": "9",
-        "stage": 1,
-        "verification_token": "NLM_SIG_244_9"
-      },
-      {
-        "icd_code": "78720",
-        "icd_version": "9",
-        "stage": 1,
-        "verification_token": "NLM_SIG_787_20"
-      },
-      {
-        "icd_code": "7802",
-        "icd_version": "9",
-        "stage": 1,
-        "verification_token": "NLM_SIG_780_2"
-      },
-      {
-        "icd_code": "2859",
-        "icd_version": "9",
-        "stage": 1,
-        "verification_token": "NLM_SIG_285_9"
-      },
-      {
-        "icd_code": "2762",
-        "icd_version": "9",
-        "stage": 1,
-        "verification_token": "NLM_SIG_276_2"
-      },
-      {
-        "icd_code": "E9478",
-        "icd_version": "9",
-        "stage": 1,
-        "verification_token": "NLM_SIG_E947_8"
-      },
-      {
-        "icd_code": "4019",
-        "icd_version": "9",
-        "stage": 1,
-        "verification_token": "NLM_SIG_401_9"
-      },
-      {
-        "icd_code": "5845",
-        "icd_version": "9",
-        "stage": 1,
-        "verification_token": "NLM_SIG_584_5"
-      },
-      {
-        "icd_code": "78552",
-        "icd_version": "9",
-        "stage": 1,
-        "verification_token": "NLM_SIG_785_52"
-      },
-      {
-        "icd_code": "486",
-        "icd_version": "9",
-        "stage": 1,
-        "verification_token": "NLM_SIG_486"
-      },
-      {
-        "icd_code": "78959",
-        "icd_version": "9",
-        "stage": 1,
-        "verification_token": "NLM_SIG_789_59"
-      },
-      {
-        "icd_code": "5730",
-        "icd_version": "9",
-        "stage": 1,
-        "verification_token": "NLM_SIG_573_0"
-      },
-      {
-        "icd_code": "4940",
-        "icd_version": "9",
-        "stage": 1,
-        "verification_token": "NLM_SIG_494_0"
-      },
-      {
-        "icd_code": "53081",
-        "icd_version": "9",
-        "stage": 1,
-        "verification_token": "NLM_SIG_530_81"
-      },
-      {
-        "icd_code": "7904",
-        "icd_version": "9",
-        "stage": 1,
-        "verification_token": "NLM_SIG_790_4"
-      },
-      {
-        "icd_code": "5641",
-        "icd_version": "9",
-        "stage": 1,
-        "verification_token": "NLM_SIG_564_1"
-      },
-      {
-        "icd_code": "78097",
-        "icd_version": "9",
-        "stage": 1,
-        "verification_token": "NLM_SIG_780_97"
-      },
-      {
-        "icd_code": "73300",
-        "icd_version": "9",
-        "stage": 1,
-        "verification_token": "NLM_SIG_733_00"
-      },
-      {
-        "icd_code": "2720",
-        "icd_version": "9",
-        "stage": 1,
-        "verification_token": "NLM_SIG_272_0"
-      },
-      {
-        "icd_code": "0383",
-        "icd_version": "9",
-        "stage": 1,
-        "verification_token": "NLM_SIG_038_3"
-      },
-      {
-        "icd_code": "4240",
-        "icd_version": "9",
-        "stage": 1,
-        "verification_token": "NLM_SIG_424_0"
-      },
-      {
-        "icd_code": "53550",
-        "icd_version": "9",
-        "stage": 1,
-        "verification_token": "NLM_SIG_535_50"
-      },
-      {
-        "icd_code": "5768",
-        "icd_version": "9",
-        "stage": 1,
-        "verification_token": "NLM_SIG_576_8"
-      },
-      {
-        "icd_code": "2875",
-        "icd_version": "9",
-        "stage": 1,
-        "verification_token": "NLM_SIG_287_5"
-      },
-      {
-        "icd_code": "51881",
-        "icd_version": "9",
-        "stage": 1,
-        "verification_token": "NLM_SIG_518_81"
-      },
-      {
-        "icd_code": "34831",
-        "icd_version": "9",
-        "stage": 1,
-        "verification_token": "NLM_SIG_348_31"
-      },
-      {
-        "icd_code": "5601",
-        "icd_version": "9",
-        "stage": 1,
-        "verification_token": "NLM_SIG_560_1"
-      },
-      {
-        "icd_code": "4739",
-        "icd_version": "9",
-        "stage": 1,
-        "verification_token": "NLM_SIG_473_9"
-      },
-      {
-        "icd_code": "5809",
-        "icd_version": "9",
-        "stage": 1,
-        "verification_token": "NLM_SIG_580_9"
-      },
-      {
-        "icd_code": "2761",
-        "icd_version": "9",
-        "stage": 1,
-        "verification_token": "NLM_SIG_276_1"
-      },
-      {
-        "icd_code": "99592",
-        "icd_version": "9",
-        "stage": 1,
-        "verification_token": "NLM_SIG_995_92"
-      },
-      {
-        "icd_code": "00845",
-        "icd_version": "9",
-        "stage": 1,
-        "verification_token": "NLM_SIG_008_45"
-      },
-      {
-        "icd_code": "5184",
-        "icd_version": "9",
-        "stage": 1,
-        "verification_token": "NLM_SIG_518_4"
-      },
-      {
-        "icd_code": "56210",
-        "icd_version": "9",
-        "stage": 1,
-        "verification_token": "NLM_SIG_562_10"
-      },
-      {
-        "icd_code": "5119",
-        "icd_version": "9",
-        "stage": 1,
-        "verification_token": "NLM_SIG_511_9"
-      },
-      {
-        "icd_code": "29281",
-        "icd_version": "9",
-        "stage": 1,
-        "verification_token": "NLM_SIG_292_81"
-      },
-      {
-        "icd_code": "5781",
-        "icd_version": "9",
-        "stage": 1,
-        "verification_token": "NLM_SIG_578_1"
-      },
-      {
-        "icd_code": "1122",
-        "icd_version": "9",
-        "stage": 1,
-        "verification_token": "NLM_SIG_112_2"
-      },
-      {
-        "icd_code": "27669",
-        "icd_version": "9",
-        "stage": 1,
-        "verification_token": "NLM_SIG_276_69"
-      },
-      {
-        "icd_code": "2764",
-        "icd_version": "9",
-        "stage": 1,
-        "verification_token": "NLM_SIG_276_4"
-      },
-      {
-        "icd_code": "E9393",
-        "icd_version": "9",
-        "stage": 1,
-        "verification_token": "NLM_SIG_E939_3"
-      },
-      {
-        "icd_code": "V707",
-        "icd_version": "9",
-        "stage": 1,
-        "verification_token": "NLM_SIG_V70_7"
-      },
-      {
-        "icd_code": "42843",
-        "icd_version": "9",
-        "stage": 1,
-        "verification_token": "NLM_SIG_428_43"
-      },
-      {
-        "icd_code": "6930",
-        "icd_version": "9",
-        "stage": 1,
-        "verification_token": "NLM_SIG_693_0"
-      },
-      {
-        "icd_code": "4280",
-        "icd_version": "9",
-        "stage": 1,
-        "verification_token": "NLM_SIG_428_0"
-      },
-      {
-        "icd_code": "03843",
-        "icd_version": "9",
-        "stage": 1,
-        "verification_token": "NLM_SIG_038_43"
-      },
-      {
-        "icd_code": "99591",
-        "icd_version": "9",
-        "stage": 1,
-        "verification_token": "NLM_SIG_995_91"
-      },
-      {
-        "icd_code": "1123",
-        "icd_version": "9",
-        "stage": 1,
-        "verification_token": "NLM_SIG_112_3"
-      },
-      {
-        "icd_code": "2724",
-        "icd_version": "9",
-        "stage": 1,
-        "verification_token": "NLM_SIG_272_4"
-      },
-      {
-        "icd_code": "V1261",
-        "icd_version": "9",
-        "stage": 1,
-        "verification_token": "NLM_SIG_V12_61"
-      },
-      {
-        "icd_code": "2469",
-        "icd_version": "9",
-        "stage": 1,
-        "verification_token": "NLM_SIG_246_9"
-      },
-      {
-        "icd_code": "V441",
-        "icd_version": "9",
-        "stage": 1,
-        "verification_token": "NLM_SIG_V44_1"
-      },
-      {
-        "icd_code": "82009",
-        "icd_version": "9",
-        "stage": 1,
-        "verification_token": "NLM_SIG_820_09"
-      },
-      {
-        "icd_code": "E8859",
-        "icd_version": "9",
-        "stage": 1,
-        "verification_token": "NLM_SIG_E885_9"
-      },
-      {
-        "icd_code": "E43",
-        "icd_version": "10",
-        "stage": 1,
-        "verification_token": "ENTITY_SIG_E43"
-      },
-      {
-        "icd_code": "I10",
-        "icd_version": "10",
-        "stage": 1,
-        "verification_token": "ENTITY_SIG_I10"
-      },
-      {
-        "icd_code": "E039",
-        "icd_version": "10",
-        "stage": 3,
-        "verification_token": "ENTITY_SIG_1722092627"
-      },
-      {
-        "icd_code": "F0390",
-        "icd_version": "10",
-        "stage": null,
-        "verification_token": null
-      },
-      {
-        "icd_code": "F329",
-        "icd_version": "10",
-        "stage": 3,
-        "verification_token": "ENTITY_SIG_1669279433"
-      },
-      {
-        "icd_code": "R000",
-        "icd_version": "10",
-        "stage": 3,
-        "verification_token": "ENTITY_SIG_2079810536"
-      },
-      {
-        "icd_code": "Z931",
-        "icd_version": "10",
-        "stage": 3,
-        "verification_token": "ENTITY_SIG_415305385"
-      },
-      {
-        "icd_code": "I340",
-        "icd_version": "10",
-        "stage": null,
-        "verification_token": null
-      },
-      {
-        "icd_code": "Z5309",
-        "icd_version": "10",
-        "stage": null,
-        "verification_token": null
-      },
-      {
-        "icd_code": "K922",
-        "icd_version": "10",
-        "stage": 3,
-        "verification_token": "ENTITY_SIG_2044414353"
-      },
-      {
-        "icd_code": "Z681",
-        "icd_version": "10",
-        "stage": null,
-        "verification_token": null
-      },
-      {
-        "icd_code": "M8008XA",
-        "icd_version": "10",
-        "stage": null,
-        "verification_token": null
-      },
-      {
-        "icd_code": "M3500",
-        "icd_version": "10",
-        "stage": null,
-        "verification_token": null
-      },
-      {
-        "icd_code": "Z66",
-        "icd_version": "10",
-        "stage": null,
-        "verification_token": null
-      },
-      {
-        "icd_code": "Z961",
-        "icd_version": "10",
-        "stage": 3,
-        "verification_token": "ENTITY_SIG_1535957698"
-      },
-      {
-        "icd_code": "H04123",
-        "icd_version": "10",
-        "stage": 3,
-        "verification_token": "ENTITY_SIG_1034960983"
-      },
-      {
-        "icd_code": "E049",
-        "icd_version": "10",
-        "stage": 3,
-        "verification_token": "ENTITY_SIG_660711115"
-      },
-      {
-        "icd_code": "S0990XA",
-        "icd_version": "10",
-        "stage": null,
-        "verification_token": null
-      },
-      {
-        "icd_code": "H3530",
-        "icd_version": "10",
-        "stage": 3,
-        "verification_token": "ENTITY_SIG_816212034"
-      },
-      {
-        "icd_code": "Y92129",
-        "icd_version": "10",
-        "stage": null,
-        "verification_token": null
-      },
-      {
-        "icd_code": "M5030",
-        "icd_version": "10",
-        "stage": 3,
-        "verification_token": "ENTITY_SIG_1972930753"
-      },
-      {
-        "icd_code": "M4856XA",
-        "icd_version": "10",
-        "stage": null,
-        "verification_token": null
-      },
-      {
-        "icd_code": "S79912A",
-        "icd_version": "10",
-        "stage": null,
-        "verification_token": null
-      },
-      {
-        "icd_code": "W1839XA",
-        "icd_version": "10",
-        "stage": null,
-        "verification_token": null
-      },
-      {
-        "icd_code": "Z9181",
-        "icd_version": "10",
-        "stage": null,
-        "verification_token": null
-      },
-      {
-        "icd_code": "S4992XA",
-        "icd_version": "10",
-        "stage": null,
-        "verification_token": null
-      },
-      {
-        "icd_code": "H53143",
-        "icd_version": "10",
-        "stage": null,
-        "verification_token": null
-      }
-    ],
-    "diagnosis": "Consensus Reached (See patient details)",
-    "evidence": []
-  },
-  {
-    "patient_id": "10002495",
-    "status": "CONSENSUS",
-    "kappa": 0.8059701492537313,
-    "iterations": 3,
-    "timestamp": "2026-05-20T08:15:38.525227+00:00",
-    "timestamp_str": "2026-05-20T08:15:38.525227+00:00",
-    "icd_codes": [
-      "E118",
-      "E785",
-      "I10",
-      "I214",
-      "I252",
-      "I509",
-      "R570",
-      "R578"
-    ],
-    "grounding": [
-      {
-        "icd_code": "Z23",
-        "icd_version": "10",
-        "stage": 1,
-        "verification_token": "ENTITY_SIG_Z23"
-      },
-      {
-        "icd_code": "X58XXXA",
-        "icd_version": "10",
-        "stage": 3,
-        "verification_token": "ENTITY_SIG_901875251"
-      },
-      {
-        "icd_code": "I10",
-        "icd_version": "10",
-        "stage": 1,
-        "verification_token": "ENTITY_SIG_I10"
-      },
-      {
-        "icd_code": "I214",
-        "icd_version": "10",
-        "stage": 3,
-        "verification_token": "ENTITY_SIG_680129526"
-      },
-      {
-        "icd_code": "N179",
-        "icd_version": "10",
-        "stage": 3,
-        "verification_token": "ENTITY_SIG_476391827"
-      },
-      {
-        "icd_code": "K219",
-        "icd_version": "10",
-        "stage": null,
-        "verification_token": null
-      },
-      {
-        "icd_code": "Z7901",
-        "icd_version": "10",
-        "stage": 3,
-        "verification_token": "ENTITY_SIG_1634864060"
-      },
-      {
-        "icd_code": "A047",
-        "icd_version": "10",
-        "stage": 3,
-        "verification_token": "ENTITY_SIG_1066669554"
-      },
-      {
-        "icd_code": "R310",
-        "icd_version": "10",
-        "stage": 3,
-        "verification_token": "ENTITY_SIG_2016050353"
-      },
-      {
-        "icd_code": "Y92239",
-        "icd_version": "10",
-        "stage": 3,
-        "verification_token": "ENTITY_SIG_485153742"
-      },
-      {
-        "icd_code": "I509",
-        "icd_version": "10",
-        "stage": 3,
-        "verification_token": "ENTITY_SIG_1458683894"
-      },
-      {
-        "icd_code": "Z86718",
-        "icd_version": "10",
-        "stage": null,
-        "verification_token": null
-      },
-      {
-        "icd_code": "R570",
-        "icd_version": "10",
-        "stage": 3,
-        "verification_token": "ENTITY_SIG_1974956233"
-      },
-      {
-        "icd_code": "I2510",
-        "icd_version": "10",
-        "stage": null,
-        "verification_token": null
-      },
-      {
-        "icd_code": "E118",
-        "icd_version": "10",
-        "stage": null,
-        "verification_token": null
-      },
-      {
-        "icd_code": "Z7902",
-        "icd_version": "10",
-        "stage": 3,
-        "verification_token": "ENTITY_SIG_1634864060"
-      },
-      {
-        "icd_code": "S3730XA",
-        "icd_version": "10",
-        "stage": null,
-        "verification_token": null
-      },
-      {
-        "icd_code": "T45515A",
-        "icd_version": "10",
-        "stage": null,
-        "verification_token": null
-      },
-      {
-        "icd_code": "R410",
-        "icd_version": "10",
-        "stage": 3,
-        "verification_token": "ENTITY_SIG_1110239801"
-      },
-      {
-        "icd_code": "Z87891",
-        "icd_version": "10",
-        "stage": null,
-        "verification_token": null
-      },
-      {
-        "icd_code": "I480",
-        "icd_version": "10",
-        "stage": null,
-        "verification_token": null
-      },
-      {
-        "icd_code": "E785",
-        "icd_version": "10",
-        "stage": 3,
-        "verification_token": "ENTITY_SIG_2023062398"
-      },
-      {
-        "icd_code": "I252",
-        "icd_version": "10",
-        "stage": 3,
-        "verification_token": "ENTITY_SIG_956002477"
-      },
-      {
-        "icd_code": "R578",
-        "icd_version": "10",
-        "stage": null,
-        "verification_token": null
-      },
-      {
-        "icd_code": "K2960",
-        "icd_version": "10",
-        "stage": null,
-        "verification_token": null
-      },
-      {
-        "icd_code": "B9681",
-        "icd_version": "10",
-        "stage": null,
-        "verification_token": null
-      }
-    ],
-    "diagnosis": "Consensus Reached (See patient details)",
-    "evidence": []
-  },
-  {
-    "patient_id": "10002930",
-    "status": "CONSENSUS",
-    "kappa": 0.8494897959183674,
-    "iterations": 3,
-    "timestamp": "2026-05-20T08:18:57.207634+00:00",
-    "timestamp_str": "2026-05-20T08:18:57.207634+00:00",
-    "icd_codes": [
-      "311",
-      "B1920",
-      "B20",
-      "D72819",
-      "F1010",
-      "F10129",
-      "F10239",
-      "F1099",
-      "F1410",
-      "F1490",
-      "F17200",
-      "F17210",
-      "F1910",
-      "R4182",
-      "R45851",
-      "V08",
-      "V620",
-      "W19XXXA",
-      "Y929",
-      "Z21",
-      "Z590",
-      "Z87820"
-    ],
-    "grounding": [
-      {
-        "icd_code": "V620",
-        "icd_version": "9",
-        "stage": 1,
-        "verification_token": "NLM_SIG_V62_0"
-      },
-      {
-        "icd_code": "3559",
-        "icd_version": "9",
-        "stage": 1,
-        "verification_token": "NLM_SIG_355_9"
-      },
-      {
-        "icd_code": "311",
-        "icd_version": "9",
-        "stage": 1,
-        "verification_token": "NLM_SIG_311"
-      },
-      {
-        "icd_code": "30560",
-        "icd_version": "9",
-        "stage": 1,
-        "verification_token": "NLM_SIG_305_60"
-      },
-      {
-        "icd_code": "V08",
-        "icd_version": "9",
-        "stage": 1,
-        "verification_token": "NLM_SIG_V08_"
-      },
-      {
-        "icd_code": "30500",
-        "icd_version": "9",
-        "stage": 1,
-        "verification_token": "NLM_SIG_305_00"
-      },
-      {
-        "icd_code": "V1552",
-        "icd_version": "9",
-        "stage": 1,
-        "verification_token": "NLM_SIG_V15_52"
-      },
-      {
-        "icd_code": "V6284",
-        "icd_version": "9",
-        "stage": 1,
-        "verification_token": "NLM_SIG_V62_84"
-      },
-      {
-        "icd_code": "30001",
-        "icd_version": "9",
-        "stage": 1,
-        "verification_token": "NLM_SIG_300_01"
-      },
-      {
-        "icd_code": "V600",
-        "icd_version": "9",
-        "stage": 1,
-        "verification_token": "NLM_SIG_V60_0"
-      },
-      {
-        "icd_code": "33829",
-        "icd_version": "9",
-        "stage": 1,
-        "verification_token": "NLM_SIG_338_29"
-      },
-      {
-        "icd_code": "30590",
-        "icd_version": "9",
-        "stage": 1,
-        "verification_token": "NLM_SIG_305_90"
-      },
-      {
-        "icd_code": "37950",
-        "icd_version": "9",
-        "stage": 1,
-        "verification_token": "NLM_SIG_379_50"
-      },
-      {
-        "icd_code": "07054",
-        "icd_version": "9",
-        "stage": 1,
-        "verification_token": "NLM_SIG_070_54"
-      },
-      {
-        "icd_code": "2762",
-        "icd_version": "9",
-        "stage": 1,
-        "verification_token": "NLM_SIG_276_2"
-      },
-      {
-        "icd_code": "2511",
-        "icd_version": "9",
-        "stage": 1,
-        "verification_token": "NLM_SIG_251_1"
-      },
-      {
-        "icd_code": "07070",
-        "icd_version": "9",
-        "stage": 1,
-        "verification_token": "NLM_SIG_070_70"
-      },
-      {
-        "icd_code": "6253",
-        "icd_version": "9",
-        "stage": 1,
-        "verification_token": "NLM_SIG_625_3"
-      },
-      {
-        "icd_code": "29284",
-        "icd_version": "9",
-        "stage": 1,
-        "verification_token": "NLM_SIG_292_84"
-      },
-      {
-        "icd_code": "2989",
-        "icd_version": "9",
-        "stage": 1,
-        "verification_token": "NLM_SIG_298_9"
-      },
-      {
-        "icd_code": "7801",
-        "icd_version": "9",
-        "stage": 1,
-        "verification_token": "NLM_SIG_780_1"
-      },
-      {
-        "icd_code": "3051",
-        "icd_version": "9",
-        "stage": 1,
-        "verification_token": "NLM_SIG_305_1"
-      },
-      {
-        "icd_code": "30553",
-        "icd_version": "9",
-        "stage": 1,
-        "verification_token": "NLM_SIG_305_53"
-      },
-      {
-        "icd_code": "29633",
-        "icd_version": "9",
-        "stage": 1,
-        "verification_token": "NLM_SIG_296_33"
-      },
-      {
-        "icd_code": "F29",
-        "icd_version": "10",
-        "stage": 1,
-        "verification_token": "ENTITY_SIG_F29"
-      },
-      {
-        "icd_code": "Z23",
-        "icd_version": "10",
-        "stage": 1,
-        "verification_token": "ENTITY_SIG_Z23"
-      },
-      {
-        "icd_code": "Z21",
-        "icd_version": "10",
-        "stage": 1,
-        "verification_token": "ENTITY_SIG_Z21"
-      },
-      {
-        "icd_code": "Z590",
-        "icd_version": "10",
-        "stage": 1,
-        "verification_token": "ENTITY_SIG_Z59.0"
-      },
-      {
-        "icd_code": "B20",
-        "icd_version": "10",
-        "stage": 1,
-        "verification_token": "ENTITY_SIG_B20"
-      },
-      {
-        "icd_code": "R509",
-        "icd_version": "10",
-        "stage": 1,
-        "verification_token": "ENTITY_SIG_R50.9"
-      },
-      {
-        "icd_code": "F1110",
-        "icd_version": "10",
-        "stage": null,
-        "verification_token": null
-      },
-      {
-        "icd_code": "Z9114",
-        "icd_version": "10",
-        "stage": null,
-        "verification_token": null
-      },
-      {
-        "icd_code": "D72819",
-        "icd_version": "10",
-        "stage": 3,
-        "verification_token": "ENTITY_SIG_1998386581"
-      },
-      {
-        "icd_code": "F1410",
-        "icd_version": "10",
-        "stage": null,
-        "verification_token": null
-      },
-      {
-        "icd_code": "F39",
-        "icd_version": "10",
-        "stage": 1,
-        "verification_token": "ENTITY_SIG_F39"
-      },
-      {
-        "icd_code": "F10239",
-        "icd_version": "10",
-        "stage": 3,
-        "verification_token": "ENTITY_SIG_1580466198"
-      },
-      {
-        "icd_code": "F209",
-        "icd_version": "10",
-        "stage": 1,
-        "verification_token": "ENTITY_SIG_F20.9"
-      },
-      {
-        "icd_code": "R45851",
-        "icd_version": "10",
-        "stage": 3,
-        "verification_token": "ENTITY_SIG_778734771"
-      },
-      {
-        "icd_code": "Z87820",
-        "icd_version": "10",
-        "stage": 3,
-        "verification_token": "ENTITY_SIG_1289042584"
-      },
-      {
-        "icd_code": "B1920",
-        "icd_version": "10",
-        "stage": 3,
-        "verification_token": "ENTITY_SIG_592762674"
-      },
-      {
-        "icd_code": "F1099",
-        "icd_version": "10",
-        "stage": 3,
-        "verification_token": "ENTITY_SIG_698283790"
-      },
-      {
-        "icd_code": "N390",
-        "icd_version": "10",
-        "stage": 1,
-        "verification_token": "ENTITY_SIG_N39.0"
-      },
-      {
-        "icd_code": "Z87891",
-        "icd_version": "10",
-        "stage": null,
-        "verification_token": null
-      },
-      {
-        "icd_code": "E162",
-        "icd_version": "10",
-        "stage": 1,
-        "verification_token": "ENTITY_SIG_E16.2"
-      },
-      {
-        "icd_code": "F1490",
-        "icd_version": "10",
-        "stage": 3,
-        "verification_token": "ENTITY_SIG_1691013484"
-      },
-      {
-        "icd_code": "S0990XA",
-        "icd_version": "10",
-        "stage": null,
-        "verification_token": null
-      },
-      {
-        "icd_code": "F1910",
-        "icd_version": "10",
-        "stage": null,
-        "verification_token": null
-      },
-      {
-        "icd_code": "R51",
-        "icd_version": "10",
-        "stage": 1,
-        "verification_token": "ENTITY_SIG_R51"
-      },
-      {
-        "icd_code": "W19XXXA",
-        "icd_version": "10",
-        "stage": 3,
-        "verification_token": "ENTITY_SIG_134290789"
-      },
-      {
-        "icd_code": "D696",
-        "icd_version": "10",
-        "stage": 1,
-        "verification_token": "ENTITY_SIG_D69.6"
-      },
-      {
-        "icd_code": "F17200",
-        "icd_version": "10",
-        "stage": null,
-        "verification_token": null
-      },
-      {
-        "icd_code": "M542",
-        "icd_version": "10",
-        "stage": 1,
-        "verification_token": "ENTITY_SIG_M54.2"
-      },
-      {
-        "icd_code": "F1994",
-        "icd_version": "10",
-        "stage": null,
-        "verification_token": null
-      },
-      {
-        "icd_code": "Y929",
-        "icd_version": "10",
-        "stage": 3,
-        "verification_token": "ENTITY_SIG_1241761605"
-      },
-      {
-        "icd_code": "F1010",
-        "icd_version": "10",
-        "stage": 3,
-        "verification_token": "ENTITY_SIG_714690795"
-      },
-      {
-        "icd_code": "F10129",
-        "icd_version": "10",
-        "stage": 3,
-        "verification_token": "ENTITY_SIG_714690795"
-      },
-      {
-        "icd_code": "R4182",
-        "icd_version": "10",
-        "stage": 3,
-        "verification_token": "ENTITY_SIG_1110239801"
-      },
-      {
-        "icd_code": "F17210",
-        "icd_version": "10",
-        "stage": null,
-        "verification_token": null
-      },
-      {
-        "icd_code": "V1581",
-        "icd_version": "9",
-        "stage": 1,
-        "verification_token": "NLM_SIG_V15_81"
-      }
-    ],
-    "diagnosis": "Consensus Reached (See patient details)",
-    "evidence": []
-  },
-  {
-    "patient_id": "10003046",
-    "status": "CONSENSUS",
-    "kappa": 1.0,
-    "iterations": 1,
-    "timestamp": "2026-05-20T08:19:37.684927+00:00",
-    "timestamp_str": "2026-05-20T08:19:37.684927+00:00",
-    "icd_codes": [
-      "1505",
-      "53081",
-      "53085"
-    ],
-    "grounding": [
-      {
-        "icd_code": "53081",
-        "icd_version": "9",
-        "stage": 1,
-        "verification_token": "NLM_SIG_530_81"
-      },
-      {
-        "icd_code": "2762",
-        "icd_version": "9",
-        "stage": 1,
-        "verification_token": "NLM_SIG_276_2"
-      },
-      {
-        "icd_code": "1505",
-        "icd_version": "9",
-        "stage": 1,
-        "verification_token": "NLM_SIG_150_5"
-      },
-      {
-        "icd_code": "53085",
-        "icd_version": "9",
-        "stage": 1,
-        "verification_token": "NLM_SIG_530_85"
-      }
-    ],
-    "diagnosis": "Consensus Reached (See patient details)",
-    "evidence": []
-  },
-  {
-    "patient_id": "10003400",
-    "status": "ESCALATED",
-    "kappa": 0.0,
-    "iterations": 3,
-    "timestamp": "2026-05-20T08:27:59.225028+00:00",
-    "timestamp_str": "2026-05-20T08:27:59.225028+00:00",
-    "icd_codes": [
-      "R6521",
-      "A419",
-      "N179",
-      "J9601",
-      "I5032",
-      "D696"
-    ],
-    "grounding": [],
-    "diagnosis": "Sepsis",
-    "evidence": [
-      "hadm=23559586 admit=2137-08-04 00:07:00 type=URGENT has diagnosis R6521 (Severe sepsis without nonseptic shock)",
-      "hadm=23559586 admit=2137-08-04 00:07:00 type=URGENT has diagnosis A419 (Sepsis, unspecified organism)",
-      "hadm=23559586 admit=2137-08-04 00:07:00 type=URGENT has diagnosis N179 (Acute kidney failure, unspecified)",
-      "hadm=23559586 admit=2137-08-04 00:07:00 type=URGENT has diagnosis J9601 (Acute respiratory failure, unspecified whether with hypoxia or hypercapnia)",
-      "hadm=23559586 admit=2137-08-04 00:07:00 type=URGENT has diagnosis I5032 (Diastolic (congestive) heart failure)",
-      "hadm=23559586 admit=2137-08-04 00:07:00 type=URGENT has diagnosis D696 (Purpura and other hemorrhagic conditions)"
-    ]
-  },
-  {
-    "patient_id": "10004235",
-    "status": "CONSENSUS",
-    "kappa": 0.8731884057971014,
-    "iterations": 2,
-    "timestamp": "2026-05-20T08:28:52.605124+00:00",
-    "timestamp_str": "2026-05-20T08:28:52.605124+00:00",
-    "icd_codes": [
-      "03842",
-      "2749",
-      "2859",
-      "29900",
-      "4019",
-      "42731",
-      "486",
-      "51881",
-      "5859",
-      "78551",
-      "99592",
-      "V1253",
-      "V5861"
-    ],
-    "grounding": [
-      {
-        "icd_code": "51881",
-        "icd_version": "9",
-        "stage": 1,
-        "verification_token": "NLM_SIG_518_81"
-      },
-      {
-        "icd_code": "2859",
-        "icd_version": "9",
-        "stage": 1,
-        "verification_token": "NLM_SIG_285_9"
-      },
-      {
-        "icd_code": "486",
-        "icd_version": "9",
-        "stage": 1,
-        "verification_token": "NLM_SIG_486"
-      },
-      {
-        "icd_code": "42731",
-        "icd_version": "9",
-        "stage": 1,
-        "verification_token": "NLM_SIG_427_31"
-      },
-      {
-        "icd_code": "2749",
-        "icd_version": "9",
-        "stage": 1,
-        "verification_token": "NLM_SIG_274_9"
-      },
-      {
-        "icd_code": "5761",
-        "icd_version": "9",
-        "stage": 1,
-        "verification_token": "NLM_SIG_576_1"
-      },
-      {
-        "icd_code": "V1253",
-        "icd_version": "9",
-        "stage": 1,
-        "verification_token": "NLM_SIG_V12_53"
-      },
-      {
-        "icd_code": "29900",
-        "icd_version": "9",
-        "stage": 1,
-        "verification_token": "NLM_SIG_299_00"
-      },
-      {
-        "icd_code": "4254",
-        "icd_version": "9",
-        "stage": 1,
-        "verification_token": "NLM_SIG_425_4"
-      },
-      {
-        "icd_code": "570",
-        "icd_version": "9",
-        "stage": 1,
-        "verification_token": "NLM_SIG_570"
-      },
-      {
-        "icd_code": "58389",
-        "icd_version": "9",
-        "stage": 1,
-        "verification_token": "NLM_SIG_583_89"
-      },
-      {
-        "icd_code": "7906",
-        "icd_version": "9",
-        "stage": 1,
-        "verification_token": "NLM_SIG_790_6"
-      },
-      {
-        "icd_code": "75169",
-        "icd_version": "9",
-        "stage": 1,
-        "verification_token": "NLM_SIG_751_69"
-      },
-      {
-        "icd_code": "5845",
-        "icd_version": "9",
-        "stage": 1,
-        "verification_token": "NLM_SIG_584_5"
-      },
-      {
-        "icd_code": "99592",
-        "icd_version": "9",
-        "stage": 1,
-        "verification_token": "NLM_SIG_995_92"
-      },
-      {
-        "icd_code": "4280",
-        "icd_version": "9",
-        "stage": 1,
-        "verification_token": "NLM_SIG_428_0"
-      },
-      {
-        "icd_code": "2762",
-        "icd_version": "9",
-        "stage": 1,
-        "verification_token": "NLM_SIG_276_2"
-      },
-      {
-        "icd_code": "79029",
-        "icd_version": "9",
-        "stage": 1,
-        "verification_token": "NLM_SIG_790_29"
-      },
-      {
-        "icd_code": "40390",
-        "icd_version": "9",
-        "stage": 1,
-        "verification_token": "NLM_SIG_403_90"
-      },
-      {
-        "icd_code": "42821",
-        "icd_version": "9",
-        "stage": 1,
-        "verification_token": "NLM_SIG_428_21"
-      },
-      {
-        "icd_code": "03842",
-        "icd_version": "9",
-        "stage": 1,
-        "verification_token": "NLM_SIG_038_42"
-      },
-      {
-        "icd_code": "5939",
-        "icd_version": "9",
-        "stage": 1,
-        "verification_token": "NLM_SIG_593_9"
-      },
-      {
-        "icd_code": "34830",
-        "icd_version": "9",
-        "stage": 1,
-        "verification_token": "NLM_SIG_348_30"
-      },
-      {
-        "icd_code": "5859",
-        "icd_version": "9",
-        "stage": 1,
-        "verification_token": "NLM_SIG_585_9"
-      },
-      {
-        "icd_code": "4019",
-        "icd_version": "9",
-        "stage": 1,
-        "verification_token": "NLM_SIG_401_9"
-      },
-      {
-        "icd_code": "78551",
-        "icd_version": "9",
-        "stage": 1,
-        "verification_token": "NLM_SIG_785_51"
-      },
-      {
-        "icd_code": "57512",
-        "icd_version": "9",
-        "stage": 1,
-        "verification_token": "NLM_SIG_575_12"
-      },
-      {
-        "icd_code": "28749",
-        "icd_version": "9",
-        "stage": 1,
-        "verification_token": "NLM_SIG_287_49"
-      },
-      {
-        "icd_code": "V8535",
-        "icd_version": "9",
-        "stage": 1,
-        "verification_token": "NLM_SIG_V85_35"
-      },
-      {
-        "icd_code": "1560",
-        "icd_version": "9",
-        "stage": 1,
-        "verification_token": "NLM_SIG_156_0"
-      },
-      {
-        "icd_code": "42789",
-        "icd_version": "9",
-        "stage": 1,
-        "verification_token": "NLM_SIG_427_89"
-      },
-      {
-        "icd_code": "27800",
-        "icd_version": "9",
-        "stage": 1,
-        "verification_token": "NLM_SIG_278_00"
-      },
-      {
-        "icd_code": "1978",
-        "icd_version": "9",
-        "stage": 1,
-        "verification_token": "NLM_SIG_197_8"
-      },
-      {
-        "icd_code": "V5861",
-        "icd_version": "9",
-        "stage": 1,
-        "verification_token": "NLM_SIG_V58_61"
-      },
-      {
-        "icd_code": "78062",
-        "icd_version": "9",
-        "stage": 1,
-        "verification_token": "NLM_SIG_780_62"
-      }
-    ],
-    "diagnosis": "Consensus Reached (See patient details)",
-    "evidence": []
-  },
-  {
-    "patient_id": "10004422",
-    "status": "CONSENSUS",
-    "kappa": 0.8181818181818181,
-    "iterations": 2,
-    "timestamp": "2026-05-20T08:29:35.882750+00:00",
-    "timestamp_str": "2026-05-20T08:29:35.882750+00:00",
-    "icd_codes": [
-      "4019",
-      "41401",
-      "42731",
-      "V4582"
-    ],
-    "grounding": [
-      {
-        "icd_code": "42731",
-        "icd_version": "9",
-        "stage": 1,
-        "verification_token": "NLM_SIG_427_31"
-      },
-      {
-        "icd_code": "4019",
-        "icd_version": "9",
-        "stage": 1,
-        "verification_token": "NLM_SIG_401_9"
-      },
-      {
-        "icd_code": "V1582",
-        "icd_version": "9",
-        "stage": 1,
-        "verification_token": "NLM_SIG_V15_82"
-      },
-      {
-        "icd_code": "2724",
-        "icd_version": "9",
-        "stage": 1,
-        "verification_token": "NLM_SIG_272_4"
-      },
-      {
-        "icd_code": "99811",
-        "icd_version": "9",
-        "stage": 1,
-        "verification_token": "NLM_SIG_998_11"
-      },
-      {
-        "icd_code": "2910",
-        "icd_version": "9",
-        "stage": 1,
-        "verification_token": "NLM_SIG_291_0"
-      },
-      {
-        "icd_code": "9971",
-        "icd_version": "9",
-        "stage": 1,
-        "verification_token": "NLM_SIG_997_1"
-      },
-      {
-        "icd_code": "4111",
-        "icd_version": "9",
-        "stage": 1,
-        "verification_token": "NLM_SIG_411_1"
-      },
-      {
-        "icd_code": "E8782",
-        "icd_version": "9",
-        "stage": 1,
-        "verification_token": "NLM_SIG_E878_2"
-      },
-      {
-        "icd_code": "30390",
-        "icd_version": "9",
-        "stage": 1,
-        "verification_token": "NLM_SIG_303_90"
-      },
-      {
-        "icd_code": "V4582",
-        "icd_version": "9",
-        "stage": 1,
-        "verification_token": "NLM_SIG_V45_82"
-      },
-      {
-        "icd_code": "E8497",
-        "icd_version": "9",
-        "stage": 1,
-        "verification_token": "NLM_SIG_E849_7"
-      },
-      {
-        "icd_code": "E8844",
-        "icd_version": "9",
-        "stage": 1,
-        "verification_token": "NLM_SIG_E884_4"
-      },
-      {
-        "icd_code": "71941",
-        "icd_version": "9",
-        "stage": 1,
-        "verification_token": "NLM_SIG_719_41"
-      },
-      {
-        "icd_code": "41401",
-        "icd_version": "9",
-        "stage": 1,
-        "verification_token": "NLM_SIG_414_01"
-      },
-      {
-        "icd_code": "45182",
-        "icd_version": "9",
-        "stage": 1,
-        "verification_token": "NLM_SIG_451_82"
-      }
-    ],
-    "diagnosis": "Consensus Reached (See patient details)",
-    "evidence": []
-  }
-];
-        
+        let patients = [];
         let currentStatusFilter = 'ALL';
-        
-        function getKappaLabel(k) {
-            if (k === null || k === undefined) return '—';
-            return k.toFixed(3);
+        let lastGeneratedAt = null;
+
+        // ── Data loading ──────────────────────────────────────────────────────
+        async function loadData() {
+            try {
+                const res = await fetch('patients.json?_=' + Date.now());
+                if (!res.ok) return;
+                const data = await res.json();
+
+                if (data.generated_at === lastGeneratedAt) return; // no change
+                lastGeneratedAt = data.generated_at;
+
+                patients = data.patients || [];
+                updateStats(data.stats || {});
+                filterPatients();
+
+                const ts = new Date(data.generated_at);
+                document.getElementById('lastUpdated').textContent =
+                    ts.toLocaleString(undefined, { hour12: false });
+
+                document.getElementById('loadingBanner').style.display = 'none';
+            } catch (_) {
+                // best-effort — network errors don't crash the UI
+            }
         }
-        
+
+        // ── Stats cards ───────────────────────────────────────────────────────
+        function updateStats(s) {
+            document.getElementById('stat-total').textContent      = s.total_audited ?? '—';
+            document.getElementById('stat-consensus-pct').textContent = s.consensus_rate_pct != null ? s.consensus_rate_pct + '%' : '—';
+            document.getElementById('stat-consensus-sub').textContent = s.total_audited != null ? `${s.consensus_count}/${s.total_audited} reached` : '—';
+            document.getElementById('stat-escalated').textContent  = s.escalated_count ?? '—';
+            document.getElementById('stat-kappa').textContent      = s.avg_kappa != null ? 'κ=' + s.avg_kappa.toFixed(3) : '—';
+
+            document.getElementById('bar-consensus').style.width  = (s.consensus_rate_pct ?? 0) + '%';
+            document.getElementById('bar-escalated').style.width  = (100 - (s.consensus_rate_pct ?? 100)) + '%';
+            document.getElementById('bar-kappa').style.width      = Math.min(100, Math.round((s.avg_kappa ?? 0) * 100)) + '%';
+        }
+
+        // ── Table rendering ───────────────────────────────────────────────────
         function renderTable(list) {
-            const tbody = document.getElementById('tableBody');
+            const tbody    = document.getElementById('tableBody');
             const noResults = document.getElementById('noResults');
             tbody.innerHTML = '';
-            
-            if (list.length === 0) {
-                noResults.classList.remove('hidden');
-                return;
-            }
+
+            if (list.length === 0) { noResults.classList.remove('hidden'); return; }
             noResults.classList.add('hidden');
-            
+
             list.forEach(p => {
                 const tr = document.createElement('tr');
                 tr.className = 'hover:bg-slate-800/20 transition cursor-pointer';
                 tr.onclick = () => showModal(p.patient_id);
-                
-                const badgeClass = p.status === 'CONSENSUS' 
-                    ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' 
+
+                const badgeClass = p.status === 'CONSENSUS'
+                    ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
                     : 'bg-amber-500/10 text-amber-400 border-amber-500/20';
-                    
                 const badgeText = p.status === 'CONSENSUS' ? '🟢 Consensus' : '🔴 Escalated';
-                
-                const kappaText = getKappaLabel(p.kappa);
-                
-                const codeBadges = p.icd_codes.slice(0, 5).map(c => 
+                const kappaText = p.kappa != null ? p.kappa.toFixed(3) : '—';
+
+                const codeBadges = (p.icd_codes || []).slice(0, 5).map(c =>
                     `<span class="px-2 py-0.5 bg-slate-950/60 rounded text-slate-300 font-mono text-xs border border-slate-800">${c}</span>`
                 ).join(' ');
-                
-                const codeSuffix = p.icd_codes.length > 5 ? `<span class="text-xs text-slate-500 font-medium"> +${p.icd_codes.length - 5} more</span>` : '';
-                
+                const codeSuffix = p.icd_codes.length > 5
+                    ? `<span class="text-xs text-slate-500 font-medium"> +${p.icd_codes.length - 5} more</span>` : '';
+
                 tr.innerHTML = `
                     <td class="p-6 font-bold text-white">${p.patient_id}</td>
                     <td class="p-6">
-                        <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border ${badgeClass}">
-                            ${badgeText}
-                        </span>
+                        <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border ${badgeClass}">${badgeText}</span>
                     </td>
                     <td class="p-6 font-semibold text-slate-200">${kappaText}</td>
                     <td class="p-6 text-slate-400">${p.iterations} iter</td>
@@ -2191,81 +263,63 @@
                         <button class="px-3.5 py-1.5 bg-indigo-500/10 hover:bg-indigo-600/20 text-indigo-400 hover:text-indigo-300 rounded-lg text-xs font-semibold border border-indigo-500/20 transition">
                             View Audit
                         </button>
-                    </td>
-                `;
+                    </td>`;
                 tbody.appendChild(tr);
             });
         }
-        
+
+        // ── Filtering ─────────────────────────────────────────────────────────
         function setStatusFilter(status) {
             currentStatusFilter = status;
-            
-            // Update active state of buttons
-            const btns = {
-                'ALL': document.getElementById('btn-all'),
-                'CONSENSUS': document.getElementById('btn-consensus'),
-                'ESCALATED': document.getElementById('btn-escalated')
-            };
-            
-            Object.keys(btns).forEach(key => {
-                if (!btns[key]) return;
-                if (key === status) {
-                    btns[key].className = "px-4 py-1.5 rounded-lg text-xs font-semibold bg-indigo-600 text-white shadow-lg transition";
-                } else {
-                    btns[key].className = "px-4 py-1.5 rounded-lg text-xs font-semibold text-slate-400 hover:bg-slate-800 transition";
-                }
+            ['ALL', 'CONSENSUS', 'ESCALATED'].forEach(key => {
+                const btn = document.getElementById('btn-' + key.toLowerCase());
+                if (!btn) return;
+                btn.className = key === status
+                    ? 'px-4 py-1.5 rounded-lg text-xs font-semibold bg-indigo-600 text-white shadow-lg transition'
+                    : 'px-4 py-1.5 rounded-lg text-xs font-semibold text-slate-400 hover:bg-slate-800 transition';
             });
-            
             filterPatients();
         }
-        
+
         function filterPatients() {
-            const search = document.getElementById('searchInput').value.toLowerCase().strip || '';
-            
+            const search = document.getElementById('searchInput').value.toLowerCase().trim();
             const filtered = patients.filter(p => {
                 const matchesStatus = currentStatusFilter === 'ALL' || p.status === currentStatusFilter;
-                
-                const matchesSearch = !search 
+                const matchesSearch = !search
                     || p.patient_id.toLowerCase().includes(search)
-                    || p.diagnosis.toLowerCase().includes(search)
-                    || p.icd_codes.some(c => c.toLowerCase().includes(search));
-                    
+                    || (p.diagnosis || '').toLowerCase().includes(search)
+                    || (p.icd_codes || []).some(c => c.toLowerCase().includes(search));
                 return matchesStatus && matchesSearch;
             });
-            
             renderTable(filtered);
         }
-        
+
+        // ── Modal ─────────────────────────────────────────────────────────────
         function showModal(patientId) {
             const p = patients.find(x => x.patient_id === patientId);
             if (!p) return;
-            
+
             document.getElementById('modalTitle').innerText = `Clinical Audit: Patient ${p.patient_id}`;
-            
             const dateStr = p.timestamp_str ? p.timestamp_str.split('.')[0].replace('T', ' ') + ' UTC' : 'Unknown date';
             document.getElementById('modalTimestamp').innerText = `Audited on: ${dateStr}`;
-            
+
             const badge = document.getElementById('modalStatusBadge');
             badge.innerText = p.status === 'CONSENSUS' ? '✓ Consensus' : '⚠ Escalated';
-            badge.className = p.status === 'CONSENSUS' 
-                ? 'inline-block mt-1 font-semibold text-emerald-400' 
+            badge.className = p.status === 'CONSENSUS'
+                ? 'inline-block mt-1 font-semibold text-emerald-400'
                 : 'inline-block mt-1 font-semibold text-amber-500';
-                
-            document.getElementById('modalKappa').innerText = p.kappa !== null ? p.kappa.toFixed(3) : '—';
+
+            document.getElementById('modalKappa').innerText = p.kappa != null ? p.kappa.toFixed(3) : '—';
             document.getElementById('modalIterations').innerText = `${p.iterations} negotiation round(s)`;
-            
-            // Hypothesis
+
             const hypothesisBox = document.getElementById('modalHypothesis');
-            if (p.status === 'CONSENSUS') {
-                hypothesisBox.innerText = `Audit Consensus reached. All agents agreed on the patient diagnosis and ICD code assignments after ${p.iterations} negotiation iterations.`;
-            } else {
-                hypothesisBox.innerText = p.diagnosis || 'Diagnosis discrepancies between agents required escalation to standard clinician overview.';
-            }
-            
-            // Codes
+            hypothesisBox.innerText = p.status === 'CONSENSUS'
+                ? `Audit consensus reached. All agents agreed on the patient diagnosis and ICD code assignments after ${p.iterations} negotiation iteration(s).`
+                : p.diagnosis || 'Diagnosis discrepancies between agents required escalation to physician review.';
+
             const codesBox = document.getElementById('modalCodes');
             codesBox.innerHTML = '';
-            if (p.icd_codes.length === 0) {
+            if (!p.icd_codes || p.icd_codes.length === 0) {
                 codesBox.innerHTML = '<span class="text-slate-500 italic">No codes recorded</span>';
             } else {
                 p.icd_codes.forEach(c => {
@@ -2275,65 +329,45 @@
                     codesBox.appendChild(span);
                 });
             }
-            
-            // Grounding & Evidence List
+
             const listEl = document.getElementById('modalEvidenceList');
             listEl.innerHTML = '';
-            
             if (p.status === 'CONSENSUS' && p.grounding && p.grounding.length > 0) {
                 p.grounding.forEach(g => {
                     const item = document.createElement('div');
                     item.className = 'p-3.5 rounded-xl bg-slate-950/30 border border-slate-800 flex items-start justify-between gap-4';
-                    
-                    const codeLabel = `<span class="px-2 py-0.5 bg-slate-900 rounded font-mono text-xs text-white border border-slate-800">ICD-${g.icd_version} ${g.icd_code}</span>`;
-                    
-                    const titleText = g.title ? `<span class="text-slate-300 ml-2 font-medium font-sans">${g.title}</span>` : '<span class="text-slate-500 ml-2 italic">Unlabeled medical concept</span>';
-                    
-                    const stageBadge = g.stage 
+                    const stageBadge = g.stage
                         ? `<span class="px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-wider bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">Stage ${g.stage} Verified</span>`
                         : `<span class="px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-wider bg-rose-500/10 text-rose-400 border border-rose-500/20">Unverified</span>`;
-                        
                     item.innerHTML = `
                         <div class="flex items-center gap-1">
-                            ${codeLabel}
-                            ${titleText}
+                            <span class="px-2 py-0.5 bg-slate-900 rounded font-mono text-xs text-white border border-slate-800">ICD-${g.icd_version} ${g.icd_code}</span>
+                            ${g.title ? `<span class="text-slate-300 ml-2 font-medium">${g.title}</span>` : '<span class="text-slate-500 ml-2 italic">Unlabeled medical concept</span>'}
                         </div>
-                        <div>
-                            ${stageBadge}
-                        </div>
-                    `;
+                        <div>${stageBadge}</div>`;
                     listEl.appendChild(item);
                 });
             } else if (p.evidence && p.evidence.length > 0) {
                 p.evidence.forEach(ev => {
                     const item = document.createElement('div');
                     item.className = 'p-3.5 rounded-xl bg-slate-950/30 border border-slate-800 flex items-start gap-3';
-                    item.innerHTML = `
-                        <span class="text-amber-500 shrink-0 select-none">✦</span>
-                        <p class="text-slate-300 leading-relaxed font-sans text-xs">${ev}</p>
-                    `;
+                    item.innerHTML = `<span class="text-amber-500 shrink-0">✦</span><p class="text-slate-300 leading-relaxed text-xs">${ev}</p>`;
                     listEl.appendChild(item);
                 });
             } else {
-                listEl.innerHTML = '<div class="p-4 bg-slate-950/20 text-slate-500 italic text-center rounded-xl border border-slate-800">No additional logs or evidence records are active.</div>';
+                listEl.innerHTML = '<div class="p-4 bg-slate-950/20 text-slate-500 italic text-center rounded-xl border border-slate-800">No additional evidence records.</div>';
             }
-            
+
             document.getElementById('detailModal').classList.remove('hidden');
         }
-        
-        function hideModal() {
-            document.getElementById('detailModal').classList.add('hidden');
-        }
-        
-        function closeModal(event) {
-            if (event.target === document.getElementById('detailModal')) {
-                hideModal();
-            }
-        }
-        
-        // Initial table load
+
+        function hideModal()  { document.getElementById('detailModal').classList.add('hidden'); }
+        function closeModal(e) { if (e.target === document.getElementById('detailModal')) hideModal(); }
+
+        // ── Bootstrap ─────────────────────────────────────────────────────────
         document.addEventListener('DOMContentLoaded', () => {
-            renderTable(patients);
+            loadData();
+            setInterval(loadData, 15000); // poll every 15 seconds
         });
     </script>
 </body>

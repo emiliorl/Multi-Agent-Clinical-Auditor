@@ -13,8 +13,7 @@ from src.logger import get_logger
 
 logger = get_logger(__name__)
 
-import os
-MAX_ITER = int(os.getenv("MAX_ITER", "3"))
+MAX_ITER = 1
 KAPPA_THRESHOLD = 0.80
 
 _TRANSIENT_TAGS = ("429", "RESOURCE_EXHAUSTED", "rate limit", "quota",
