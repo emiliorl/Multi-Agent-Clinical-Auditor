@@ -5,6 +5,33 @@ and disagreement_log.jsonl to produce a premium, unified visual HTML Dashboard
 and a consolidated Markdown report.
 """
 
+if __name__ == "__main__":
+    import os
+    import sys
+    import subprocess
+    from pathlib import Path
+
+    venv_dir = Path(__file__).parent.resolve() / "venv"
+    if venv_dir.exists():
+        try:
+            is_in_venv = Path(sys.executable).resolve().is_relative_to(venv_dir)
+        except AttributeError:
+            try:
+                Path(sys.executable).resolve().relative_to(venv_dir)
+                is_in_venv = True
+            except ValueError:
+                is_in_venv = False
+
+        if not is_in_venv:
+            if os.name == "nt":
+                venv_python = venv_dir / "Scripts" / "python.exe"
+            else:
+                venv_python = venv_dir / "bin" / "python"
+
+            if venv_python.exists():
+                args = [str(venv_python)] + sys.argv
+                sys.exit(subprocess.call(args))
+
 import json
 import os
 import re
@@ -530,7 +557,7 @@ def generate_html_dashboard(patients: list[dict], stats: dict) -> Path:
         }}
         
         function filterPatients() {{
-            const search = document.getElementById('searchInput').value.toLowerCase().strip || '';
+            const search = document.getElementById('searchInput').value.toLowerCase().trim() || '';
             
             const filtered = patients.filter(p => {{
                 const matchesStatus = currentStatusFilter === 'ALL' || p.status === currentStatusFilter;
