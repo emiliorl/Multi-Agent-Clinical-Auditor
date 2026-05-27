@@ -95,11 +95,14 @@ class EHRPatternScanner(BaseTool):
             admissions: list[Admission] = []
             for hadm_id, group in diag_df.groupby("hadm_id"):
                 adm_row = adm_map.get(hadm_id, {})
+                local_dict = _get_local_dict()
                 diagnoses = [
                     IcdEntry(
                         code=str(r["icd_code"]).strip(),
                         version=str(int(r["icd_version"])),
-                        description=None,
+                        description=local_dict.get(
+                            (str(r["icd_code"]).strip(), str(int(r["icd_version"]))), None
+                        ),
                     )
                     for _, r in group.iterrows()
                 ]
@@ -491,11 +494,25 @@ class BatchMedicalKnowledgeLookup(BaseTool):
             "Batch grounding complete for patient %s: %d verified, %d unverified",
             patient_id, len(verified), len(unverified),
         )
+        # Return only the fields the model needs; strip similarity_score, matched_code,
+        # llm_concept, icd_version to keep the tool response within Gemini's context budget.
+        slim_verified = [
+            {
+                "icd_code": r["icd_code"],
+                "title": r.get("title"),
+                "stage": r["stage"],
+                "verification_token": r.get("verification_token"),
+                "status": "VERIFIED",
+            }
+            for r in verified
+        ]
+        slim_unverified = [
+            {"icd_code": r["icd_code"], "status": "UNVERIFIED"}
+            for r in unverified
+        ]
         return json.dumps({
             "patient_id": patient_id,
-            "total": len(results),
-            "verified_count": len(verified),
-            "unverified_count": len(unverified),
+            "verified": slim_verified,
+            "unverified": slim_unverified,
             "truncated": truncated,
-            "grounding_table": results,
         })

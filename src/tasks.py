@@ -1,9 +1,23 @@
+import json as _json
 import os
 from dotenv import load_dotenv
 from crewai import Task
 from src.models import AgentDiagnosis
 
 load_dotenv()
+
+
+def _slim_trajectory_for_prompt(trajectory_json: str) -> str:
+    """Drop fields the LLM doesn't need (flat icd_codes list, timeline strings).
+    The full trajectory is preserved for the consensus gate; only the prompt copy is slimmed.
+    """
+    try:
+        traj = _json.loads(trajectory_json)
+    except Exception:
+        return trajectory_json
+    traj.pop("icd_codes", None)
+    traj.pop("timeline", None)
+    return _json.dumps(traj)
 
 _EVIDENCE_FORMAT = (
     "hadm=<HADM_ID> admit=<YYYY-MM-DD> <HH:MM> type=<ADMIT_TYPE> has diagnosis <CODE> (<Description>)"
@@ -30,6 +44,7 @@ def _pydantic_output():
 
 
 def get_mining_task(agent, trajectory_json: str) -> Task:
+    slim = _slim_trajectory_for_prompt(trajectory_json)
     return Task(
         description=(
             "You are the Lead Clinical Data Miner applying Clinical Chain-of-Thought (CCoT) reasoning: "
@@ -38,7 +53,7 @@ def get_mining_task(agent, trajectory_json: str) -> Task:
             "any code you cannot justify with a specific admission event.\n\n"
             "You have been given the complete patient trajectory below. "
             "Do NOT call any scanning tools — the data is already provided.\n\n"
-            f"PATIENT TRAJECTORY JSON:\n{trajectory_json}\n\n"
+            f"PATIENT TRAJECTORY JSON:\n{slim}\n\n"
             "Your job:\n"
             "1. Review the admission history and form a PRIMARY diagnosis hypothesis based on the "
             "clinical pattern across admissions (e.g., sepsis, chronic liver disease, COPD exacerbation).\n"
@@ -65,12 +80,12 @@ def get_mining_task(agent, trajectory_json: str) -> Task:
 
 
 def get_audit_task(agent, trajectory_json: str) -> Task:
-    import json as _json
     try:
         traj = _json.loads(trajectory_json)
         patient_id = traj.get("patient_id", "unknown")
     except Exception:
         patient_id = "unknown"
+    slim = _slim_trajectory_for_prompt(trajectory_json)
 
     return Task(
         description=(
@@ -78,7 +93,7 @@ def get_audit_task(agent, trajectory_json: str) -> Task:
             "reasoning rules: Perceive the data, Think through the grounding results, Act by selecting "
             "only evidence-grounded codes, Reflect by checking every cited code has a Verification Token.\n\n"
             "You have been given the complete patient trajectory below — DO NOT call EHRPatternScanner.\n\n"
-            f"PATIENT TRAJECTORY JSON:\n{trajectory_json}\n\n"
+            f"PATIENT TRAJECTORY JSON:\n{slim}\n\n"
             "Follow these steps exactly:\n\n"
             f"STEP 1 — Call batch_medical_knowledge_lookup EXACTLY ONCE with patient_id={patient_id!r}. "
             "If the trajectory has more than 15 codes, send ONLY the top ~15 most clinically salient codes "
@@ -110,7 +125,6 @@ def get_audit_task(agent, trajectory_json: str) -> Task:
 
 def get_reflection_task(agent, trajectory_json: str, contradiction_report: str) -> Task:
     """Task injected during the Reflection Loop when kappa < threshold."""
-    import json as _json
     try:
         traj = _json.loads(trajectory_json)
         patient_id = traj.get("patient_id", "unknown")
@@ -134,7 +148,7 @@ def get_reflection_task(agent, trajectory_json: str, contradiction_report: str) 
             "trigger another reflection round or physician escalation.\n"
             "4. Re-emit evidence_chain entries using EXACTLY the EVIDENCE_CHAIN FORMAT from the original task "
             "(hadm=... admit=... type=... has diagnosis CODE (Desc)). No free-text.\n"
-            "5. Do NOT re-call any tools.\n\n"
+            "5. No tools are available for this task — produce the revised JSON directly.\n\n"
             "Return ONLY the JSON object below — no extra text, no markdown fences."
             + _JSON_SCHEMA_HINT
         ),
@@ -143,6 +157,10 @@ def get_reflection_task(agent, trajectory_json: str, contradiction_report: str) 
             "evidence_chain (list of str), confidence_score (float 0-1), unverified_codes (list of str)."
         ),
         output_pydantic=_pydantic_output(),
+        # Override agent's tools — reflection should never call tools, and exposing them
+        # to Gemini causes it to loop on tool signals instead of emitting the final JSON
+        # (manifesting as "Invalid response from LLM call - None or empty" via max_iter).
+        tools=[],
         agent=agent,
     )
 
@@ -159,11 +177,15 @@ def get_manager_contradiction_task(
     job is NOT to recompute κ — it is to explain *why* the two assessments diverge so that
     the reflection task prompt is clinically meaningful rather than a bare code diff.
     """
-    import json as _json
 
     def _fmt(output) -> str:
         try:
-            return _json.dumps(output.model_dump(), indent=2)
+            # Drop evidence_chain — the Manager only needs hypothesis + codes + confidence
+            # to write the contradiction narrative. evidence_chain entries are long per-code
+            # strings that bloat the prompt without informing the reasoning.
+            slim = output.model_dump()
+            slim.pop("evidence_chain", None)
+            return _json.dumps(slim, indent=2)
         except Exception:
             return str(output)
 
@@ -213,11 +235,12 @@ def get_manager_contradiction_task(
 
 def get_critique_from_outputs_task(agent, diagnostician_output, auditor_output) -> Task:
     """Critique task that embeds pre-computed outputs -- avoids re-running agents in a sequential crew."""
-    import json as _json
 
     def _fmt(output) -> str:
         try:
-            return _json.dumps(output.model_dump(), indent=2)
+            slim = output.model_dump()
+            slim.pop("evidence_chain", None)
+            return _json.dumps(slim, indent=2)
         except Exception:
             return str(output)
 
