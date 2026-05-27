@@ -91,8 +91,7 @@ RESULTS_DIR = Path("eval/results")
 # Error taxonomy
 # ─────────────────────────────────────────────────────────────────────────────
 
-_AFC_TAGS = ("AFC", "max_remote_calls", "Automatic function calling",
-             "None or empty", "Invalid response from LLM call")
+_AFC_TAGS = ("AFC", "max_remote_calls", "Automatic function calling")
 _TRANSIENT_TAGS = ("429", "RESOURCE_EXHAUSTED", "rate limit", "quota",
                    "503", "UNAVAILABLE", "overloaded")
 
