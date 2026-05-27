@@ -68,9 +68,71 @@ def _safe_kappa(value) -> float | None:
         return None
 
 
+_local_icd_dict = None
+
+
+def _load_local_icd_dict():
+    global _local_icd_dict
+    if _local_icd_dict is not None:
+        return _local_icd_dict
+    _local_icd_dict = {}
+    dict_path = Path(__file__).parent / "data" / "mimic-iv-clinical-database-demo-2.2" / "hosp" / "d_icd_diagnoses.csv.gz"
+    if dict_path.exists():
+        import gzip
+        import csv
+        try:
+            with gzip.open(dict_path, mode="rt", encoding="utf-8") as f:
+                reader = csv.DictReader(f)
+                for row in reader:
+                    code = str(row.get("icd_code", "")).strip()
+                    try:
+                        version = str(int(float(str(row.get("icd_version", "9")))))
+                    except (ValueError, TypeError):
+                        version = str(row.get("icd_version", "9")).strip()
+                    title = str(row.get("long_title", "")).strip()
+                    if code:
+                        _local_icd_dict[(code, version)] = title
+        except Exception as e:
+            print(f"[WARN] Failed to load local dictionary: {e}")
+    return _local_icd_dict
+
+
+def _resolve_code_titles(run, local_dict):
+    code_titles = {}
+    # 1. Collect all codes from grounding
+    for g in run.get("grounding", []):
+        code = g.get("icd_code")
+        ver = str(g.get("icd_version", "10"))
+        if code:
+            title = g.get("title")
+            if not title and local_dict:
+                title = local_dict.get((code, ver))
+                g["title"] = title
+            if title:
+                code_titles[code] = title
+
+    # 2. Collect other cited codes
+    codes = set(run.get("icd_codes", []))
+    if run.get("diagnostician_position"):
+        codes.update(run["diagnostician_position"].get("icd_codes_cited", []))
+        codes.update(run["diagnostician_position"].get("unverified_codes", []))
+    if run.get("auditor_position"):
+        codes.update(run["auditor_position"].get("icd_codes_cited", []))
+        codes.update(run["auditor_position"].get("unverified_codes", []))
+
+    for code in codes:
+        if code not in code_titles and local_dict:
+            title = local_dict.get((code, "10")) or local_dict.get((code, "9"))
+            if title:
+                code_titles[code] = title
+
+    run["code_titles"] = code_titles
+
+
 def build_consolidated_data() -> tuple[list[dict], dict]:
     """Collect all runs per patient, sort newest-first, compute stats from latest run."""
     patient_runs: dict[str, list[dict]] = {}
+    local_dict = _load_local_icd_dict()
 
     for run in safe_parse_jsonl(REASONING_LOG):
         pid = run.get("patient_id")
@@ -96,6 +158,7 @@ def build_consolidated_data() -> tuple[list[dict], dict]:
             "contradiction_points": [],
             "_ts": ts,
         }
+        _resolve_code_titles(record, local_dict)
         patient_runs.setdefault(pid, []).append(record)
 
     for run in safe_parse_jsonl(DISAGREEMENT_LOG):
@@ -123,6 +186,7 @@ def build_consolidated_data() -> tuple[list[dict], dict]:
             "contradiction_points": run.get("contradiction_points", []),
             "_ts": ts,
         }
+        _resolve_code_titles(record, local_dict)
         patient_runs.setdefault(pid, []).append(record)
 
     sorted_patients: list[dict] = []
@@ -144,6 +208,7 @@ def build_consolidated_data() -> tuple[list[dict], dict]:
             "diagnostician_position": latest["diagnostician_position"],
             "auditor_position": latest["auditor_position"],
             "contradiction_points": latest["contradiction_points"],
+            "code_titles": latest["code_titles"],
             "run_count": len(runs),
             "runs": runs,
         })

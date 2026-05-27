@@ -5,11 +5,20 @@ from src.models import AgentDiagnosis
 
 load_dotenv()
 
+_EVIDENCE_FORMAT = (
+    "hadm=<HADM_ID> admit=<YYYY-MM-DD> <HH:MM> type=<ADMIT_TYPE> has diagnosis <CODE> (<Description>)"
+)
+
 _JSON_SCHEMA_HINT = (
     "\n\nOUTPUT FORMAT — return ONLY a valid JSON object, no markdown fences, no extra text:\n"
     '{"patient_id": "<str>", "diagnosis_hypothesis": "<str>", '
     '"icd_codes_cited": ["<code>", ...], "evidence_chain": ["<str>", ...], '
-    '"confidence_score": <float 0.0-1.0>, "unverified_codes": ["<code>", ...]}'
+    '"confidence_score": <float 0.0-1.0>, "unverified_codes": ["<code>", ...]}\n\n'
+    "EVIDENCE_CHAIN FORMAT — each entry MUST follow this exact template:\n"
+    f'  "{_EVIDENCE_FORMAT}"\n'
+    "Example: \"hadm=123456 admit=2180-03-15 14:22 type=URGENT has diagnosis A419 (Sepsis, unspecified organism)\"\n"
+    "Use the hadm_id, admit_time, and admission_type values from the trajectory JSON directly. "
+    "Do NOT write free-text justifications — the dashboard will not render them as structured cards."
 )
 
 
@@ -23,17 +32,23 @@ def _pydantic_output():
 def get_mining_task(agent, trajectory_json: str) -> Task:
     return Task(
         description=(
-            "You are the Lead Clinical Data Miner. You have been given the complete patient "
-            "trajectory below. Do NOT call any scanning tools — the data is already provided.\n\n"
+            "You are the Lead Clinical Data Miner applying Clinical Chain-of-Thought (CCoT) reasoning: "
+            "Perceive the full admission history, Think by identifying the dominant clinical pattern, "
+            "Act by selecting only the codes that directly support that pattern, Reflect by discarding "
+            "any code you cannot justify with a specific admission event.\n\n"
+            "You have been given the complete patient trajectory below. "
+            "Do NOT call any scanning tools — the data is already provided.\n\n"
             f"PATIENT TRAJECTORY JSON:\n{trajectory_json}\n\n"
             "Your job:\n"
             "1. Review the admission history and form a PRIMARY diagnosis hypothesis based on the "
             "clinical pattern across admissions (e.g., sepsis, chronic liver disease, COPD exacerbation).\n"
             "2. Select ONLY the ICD codes that directly support your primary hypothesis. "
             "Do NOT cite every code present — only the ones with clear clinical evidence in the trajectory. "
-            "A code that appears in an admission but does not support your primary hypothesis should be excluded.\n"
-            "3. Build an evidence chain: for each cited code, state the specific admission (hadm_id) "
-            "and clinical data point that justifies its inclusion.\n"
+            "A code that appears in an admission but does not support your primary hypothesis should be excluded. "
+            "Aim for precision: a small, focused set of well-evidenced codes is better than a long list.\n"
+            "3. Build an evidence chain: for each cited code, produce one entry using EXACTLY the "
+            "template from EVIDENCE_CHAIN FORMAT below (hadm_id, admit_time, admit_type, code, description "
+            "taken directly from the trajectory JSON). No free-text — structured tags only.\n"
             "4. Place codes you are uncertain about in unverified_codes — do not cite them in icd_codes_cited.\n"
             "5. Assign a confidence_score (0.0–1.0) reflecting your certainty in the primary hypothesis.\n\n"
             "Return a single JSON object matching the AgentDiagnosis schema exactly."
@@ -59,17 +74,23 @@ def get_audit_task(agent, trajectory_json: str) -> Task:
 
     return Task(
         description=(
-            "You are the Clinical Audit Specialist operating under CCoT rules. "
+            "You are the Clinical Audit Specialist operating under Clinical Chain-of-Thought (CCoT) "
+            "reasoning rules: Perceive the data, Think through the grounding results, Act by selecting "
+            "only evidence-grounded codes, Reflect by checking every cited code has a Verification Token.\n\n"
             "You have been given the complete patient trajectory below — DO NOT call EHRPatternScanner.\n\n"
             f"PATIENT TRAJECTORY JSON:\n{trajectory_json}\n\n"
             "Follow these steps exactly:\n\n"
             f"STEP 1 — Call batch_medical_knowledge_lookup EXACTLY ONCE with patient_id={patient_id!r} "
             "and all codes from the trajectory's icd_codes list.\n\n"
-            "STEP 2 — Form your PRIMARY diagnosis hypothesis independently. "
-            "Only include codes that clinically support your hypothesis — VERIFIED status alone is not enough.\n\n"
+            "STEP 2 — Form your PRIMARY diagnosis hypothesis independently (do NOT look at any other "
+            "agent's output). Only include codes that clinically support your hypothesis — "
+            "VERIFIED grounding status alone is not sufficient justification.\n\n"
             "STEP 3 — icd_codes_cited: VERIFIED codes directly relevant to your primary hypothesis only. "
-            "Place incidental or administrative codes in unverified_codes.\n\n"
-            "STEP 4 — evidence_chain: for each cited code, state the hadm_id and data point.\n\n"
+            "Place incidental, administrative, or UNVERIFIED codes in unverified_codes. "
+            "A code with status=UNVERIFIED must NEVER appear in icd_codes_cited.\n\n"
+            "STEP 4 — evidence_chain: for each cited code, produce one entry using EXACTLY the "
+            "template from EVIDENCE_CHAIN FORMAT below (hadm_id, admit_time, admit_type, code, description "
+            "taken directly from the trajectory JSON). No free-text — structured tags only.\n\n"
             "STEP 5 — Assign confidence_score (0.0–1.0).\n\n"
             "Return a single JSON object matching the AgentDiagnosis schema."
             + _JSON_SCHEMA_HINT
@@ -99,11 +120,18 @@ def get_reflection_task(agent, trajectory_json: str, contradiction_report: str) 
             "Revise your assessment to resolve the disagreements listed below.\n\n"
             f"CONTRADICTION REPORT:\n{contradiction_report}\n\n"
             f"Patient ID: {patient_id}\n\n"
+            "Apply Clinical Chain-of-Thought (CCoT) reasoning — Perceive the contradiction, "
+            "Think through each disputed code, Act by revising your code list, Reflect on whether "
+            "your revised output would reach κ > 0.80 with the other agent's revised output.\n\n"
             "Instructions:\n"
             "1. Review each disagreement. For codes only you cited, decide if the evidence is strong enough to keep them.\n"
             "2. For codes the other agent cited that you did not, decide if you should add them.\n"
-            "3. Aim to converge — only keep a code in icd_codes_cited if you have clear clinical evidence.\n"
-            "4. Do NOT re-call any tools.\n\n"
+            "3. Aim to converge — only keep a code in icd_codes_cited if you have clear clinical evidence. "
+            "The system requires Cohen's Kappa κ > 0.80 inter-agent agreement; unnecessary divergence will "
+            "trigger another reflection round or physician escalation.\n"
+            "4. Re-emit evidence_chain entries using EXACTLY the EVIDENCE_CHAIN FORMAT from the original task "
+            "(hadm=... admit=... type=... has diagnosis CODE (Desc)). No free-text.\n"
+            "5. Do NOT re-call any tools.\n\n"
             "Return ONLY the JSON object below — no extra text, no markdown fences."
             + _JSON_SCHEMA_HINT
         ),
@@ -116,8 +144,72 @@ def get_reflection_task(agent, trajectory_json: str, contradiction_report: str) 
     )
 
 
+def get_manager_contradiction_task(
+    agent,
+    d_output,
+    a_output,
+    kappa: float,
+) -> Task:
+    """Task for the Manager Agent: produce a clinically-reasoned contradiction narrative.
+
+    Python already computed κ and decided the threshold was not met.  The Manager Agent's
+    job is NOT to recompute κ — it is to explain *why* the two assessments diverge so that
+    the reflection task prompt is clinically meaningful rather than a bare code diff.
+    """
+    import json as _json
+
+    def _fmt(output) -> str:
+        try:
+            return _json.dumps(output.model_dump(), indent=2)
+        except Exception:
+            return str(output)
+
+    d_only = sorted(set(d_output.icd_codes_cited) - set(a_output.icd_codes_cited))
+    a_only = sorted(set(a_output.icd_codes_cited) - set(d_output.icd_codes_cited))
+    shared = sorted(set(d_output.icd_codes_cited) & set(a_output.icd_codes_cited))
+
+    return Task(
+        description=(
+            f"Inter-agent agreement is κ={kappa:.3f}, which is below the required threshold of κ > 0.80. "
+            "Your role as Clinical Governance Manager is NOT to diagnose. "
+            "It is to explain the clinical reasons behind the disagreement so that both agents "
+            "can revise their assessments in the next reflection round.\n\n"
+            f"DIAGNOSTICIAN OUTPUT:\n{_fmt(d_output)}\n\n"
+            f"AUDITOR OUTPUT:\n{_fmt(a_output)}\n\n"
+            "CODE AGREEMENT SUMMARY:\n"
+            f"  Shared codes (both agents agree): {shared}\n"
+            f"  Diagnostician only: {d_only}\n"
+            f"  Auditor only: {a_only}\n\n"
+            "Produce a CONTRADICTION REPORT with the following four sections:\n\n"
+            "SECTION 1 — HYPOTHESIS COMPARISON\n"
+            "Compare the two primary diagnosis hypotheses. Are they clinically compatible or "
+            "contradictory? Explain why, in one short paragraph.\n\n"
+            "SECTION 2 — CODE-LEVEL DISAGREEMENTS\n"
+            "For each code cited by only one agent, write one sentence explaining the clinical "
+            "rationale for why it may or may not belong in the primary hypothesis. "
+            "Do not just list the codes -- explain them.\n\n"
+            "SECTION 3 -- GROUNDING DISCIPLINE DIFFERENCES\n"
+            "Note any codes where one agent placed the code in icd_codes_cited while the other "
+            "placed it in unverified_codes. This is a grounding rule issue, not a clinical one -- "
+            "flag it explicitly so agents apply the rule consistently.\n\n"
+            "SECTION 4 -- CONVERGENCE GUIDANCE\n"
+            "Give each agent one or two specific, actionable instructions for revising their code "
+            "selection to reach kappa > 0.80. Name the specific codes each agent should reconsider "
+            "and state a concrete clinical reason for each recommendation.\n\n"
+            "Write in plain prose. Do NOT output JSON. Do NOT diagnose the patient. "
+            "Do NOT recompute kappa yourself."
+        ),
+        expected_output=(
+            "A plain-text CONTRADICTION REPORT with four labelled sections: "
+            "(1) Hypothesis Comparison, (2) Code-Level Disagreements, "
+            "(3) Grounding Discipline Differences, (4) Convergence Guidance."
+        ),
+        agent=agent,
+    )
+
+
 def get_critique_from_outputs_task(agent, diagnostician_output, auditor_output) -> Task:
-    """Critique task that embeds pre-computed outputs — avoids re-running agents in a sequential crew."""
+    """Critique task that embeds pre-computed outputs -- avoids re-running agents in a sequential crew."""
     import json as _json
 
     def _fmt(output) -> str:
@@ -140,7 +232,7 @@ def get_critique_from_outputs_task(agent, diagnostician_output, auditor_output) 
             "5. Produce a CONTRADICTION REPORT listing all substantive disagreements.\n"
             "6. Conclude with a CONSENSUS ASSESSMENT: do both agents fundamentally agree on the primary diagnosis? "
             "State yes/no and the key codes driving agreement or disagreement.\n\n"
-            "Be adversarial — your job is to find every point of disagreement, not to be polite."
+            "Be adversarial -- your job is to find every point of disagreement, not to be polite."
         ),
         expected_output=(
             "A structured critique containing: (1) codes cited by Diagnostician only, "
@@ -155,7 +247,7 @@ def get_critique_task(agent, mining_task: Task, audit_task: Task) -> Task:
     return Task(
         description=(
             "You are the Clinical Audit Specialist. You now have access to TWO independent assessments "
-            "of the same patient — one from the Lead Clinical Data Miner and one from your own prior audit. "
+            "of the same patient -- one from the Lead Clinical Data Miner and one from your own prior audit. "
             "Your job is to produce an adversarial critique:\n\n"
             "1. List every ICD code cited by the Diagnostician but NOT by you (Auditor).\n"
             "2. List every ICD code cited by you but NOT by the Diagnostician.\n"
@@ -164,7 +256,7 @@ def get_critique_task(agent, mining_task: Task, audit_task: Task) -> Task:
             "5. Produce a CONTRADICTION REPORT listing all substantive disagreements.\n"
             "6. Conclude with a CONSENSUS ASSESSMENT: do both agents fundamentally agree on the primary diagnosis? "
             "State yes/no and the key codes driving agreement or disagreement.\n\n"
-            "Be adversarial — your job is to find every point of disagreement, not to be polite."
+            "Be adversarial -- your job is to find every point of disagreement, not to be polite."
         ),
         expected_output=(
             "A structured critique containing: (1) codes cited by Diagnostician only, "

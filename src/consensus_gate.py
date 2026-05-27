@@ -13,7 +13,7 @@ from src.logger import get_logger
 
 logger = get_logger(__name__)
 
-MAX_ITER = 1
+MAX_ITER = 3          # Must match the proposal (Section III, Engineering Constraint)
 KAPPA_THRESHOLD = 0.80
 
 _TRANSIENT_TAGS = ("429", "RESOURCE_EXHAUSTED", "rate limit", "quota",
@@ -177,18 +177,53 @@ def _run_single_task(agent, task_fn, *args, **kwargs) -> AgentDiagnosis:
     return pydantic_out
 
 
+def _run_manager_task(manager_agent, task_fn, *args, **kwargs) -> str:
+    """Run the Manager Agent's contradiction task and return its raw prose output.
+
+    The Manager Agent produces plain text (not AgentDiagnosis JSON), so we capture
+    task.output.raw directly.  Any failure falls back to an empty string — the caller
+    then falls back to the Python-level JSON diff so the pipeline never blocks.
+    """
+    task = task_fn(manager_agent, *args, **kwargs)
+    crew = Crew(
+        agents=[manager_agent],
+        tasks=[task],
+        process=Process.sequential,
+        verbose=False,
+    )
+    try:
+        _kickoff_with_retry(crew)
+        narrative = (task.output.raw or "").strip()
+        logger.info(
+            "[Manager] Contradiction narrative produced (%d chars)", len(narrative)
+        )
+        return narrative
+    except Exception as exc:
+        logger.warning(
+            "[Manager] Manager Agent task failed — will fall back to Python diff. Error: %s", exc
+        )
+        return ""
+
+
 def run_consensus_gate(
     patient_id: str,
     trajectory_json: str,
     diagnostician_agent,
     auditor_agent,
+    manager_agent=None,
 ) -> tuple[AgentDiagnosis, AgentDiagnosis, float, int]:
     """
     Runs the Reflection Loop up to MAX_ITER times.
     Returns (diagnostician_output, auditor_output, final_kappa, iterations_used).
     Raises ConsensusFailure if kappa stays <= KAPPA_THRESHOLD after MAX_ITER.
+
+    When manager_agent is provided, it is called on every failed κ check to produce a
+    clinically-reasoned contradiction narrative.  That narrative replaces the bare Python
+    JSON diff as the contradiction_report injected into the reflection task prompt.
+    If the Manager Agent call fails for any reason, the pipeline falls back to the Python
+    diff so correctness is never compromised.  κ itself is always computed in Python.
     """
-    from src.tasks import get_mining_task, get_audit_task, get_reflection_task
+    from src.tasks import get_mining_task, get_audit_task, get_reflection_task, get_manager_contradiction_task
 
     # Full trajectory code list is the kappa denominator — includes codes neither agent cited,
     # giving both label vectors genuine 0s and keeping Cohen's kappa well-defined.
@@ -215,8 +250,25 @@ def run_consensus_gate(
             return d_output, a_output, kappa, iteration
 
         if iteration < MAX_ITER:
-            contradiction = _build_contradiction_report(d_output, a_output)
             logger.info("[ConsensusGate] κ below threshold — triggering reflection (iteration %d)", iteration)
+
+            # Always build the Python diff first — it is the reliable structural baseline.
+            python_diff = _build_contradiction_report(d_output, a_output)
+
+            # If a Manager Agent is available, ask it to produce a richer clinical narrative.
+            # The narrative is used as the contradiction report fed into the reflection prompts.
+            # Fall back to the Python diff if the Manager Agent produces no meaningful output.
+            if manager_agent is not None:
+                narrative = _run_manager_task(
+                    manager_agent, get_manager_contradiction_task, d_output, a_output, kappa
+                )
+                contradiction = narrative if len(narrative) > 100 else python_diff
+                if contradiction is python_diff:
+                    logger.warning(
+                        "[ConsensusGate] Manager narrative was too short or empty — using Python diff"
+                    )
+            else:
+                contradiction = python_diff
 
             d_output = _run_single_task(
                 diagnostician_agent, get_reflection_task, trajectory_json, contradiction

@@ -36,7 +36,7 @@ os.environ["OTEL_SDK_DISABLED"] = "true"
 os.environ["CREWAI_TELEMETRY_OPT_OUT"] = "true"
 
 from crewai import Crew, Process
-from src.agents import diagnostician, auditor
+from src.agents import diagnostician, auditor, manager
 from src.tasks import get_critique_from_outputs_task
 from src.tools import EHRPatternScanner
 from src.logger import get_logger
@@ -109,6 +109,7 @@ def main() -> None:
                 trajectory_json=trajectory_json,
                 diagnostician_agent=diagnostician,
                 auditor_agent=auditor,
+                manager_agent=manager,
             )
         )
 
