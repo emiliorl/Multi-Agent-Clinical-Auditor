@@ -36,3 +36,6 @@ Thumbs.db
 # Runtime Logs
 logs/
 reports/*.md
+
+# K-Fold Evaluation Results & Checkpoints
+eval/results/

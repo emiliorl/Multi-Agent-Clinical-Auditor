@@ -447,6 +447,21 @@ class BatchMedicalKnowledgeLookup(BaseTool):
                 seen.add(key)
                 unique_codes.append((icd_code, icd_version))
 
+        # Hard cap to keep the post-tool LLM response within Gemini's AFC budget
+        # (max_remote_calls=10 per turn). 78-code batches consumed the whole budget
+        # and produced empty/None responses, crashing the consensus gate.
+        _BATCH_HARD_CAP = 20
+        truncated = False
+        if len(unique_codes) > _BATCH_HARD_CAP:
+            logger.warning(
+                "[batch_medical_knowledge_lookup] Patient %s has %d unique codes — "
+                "truncating to first %d to stay within AFC budget. Dropped: %s",
+                patient_id, len(unique_codes), _BATCH_HARD_CAP,
+                [c for c, _ in unique_codes[_BATCH_HARD_CAP:]],
+            )
+            unique_codes = unique_codes[:_BATCH_HARD_CAP]
+            truncated = True
+
         results = []
         # Since _ground_single_code is heavily I/O-bound (NLM/WHO API calls & LLM fallback),
         # running grounding in parallel via a ThreadPoolExecutor significantly reduces overall latency.
@@ -481,5 +496,6 @@ class BatchMedicalKnowledgeLookup(BaseTool):
             "total": len(results),
             "verified_count": len(verified),
             "unverified_count": len(unverified),
+            "truncated": truncated,
             "grounding_table": results,
         })
