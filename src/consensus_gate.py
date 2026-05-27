@@ -7,11 +7,31 @@ import re
 from crewai import Crew, Process
 from tenacity import retry, retry_if_exception, stop_after_attempt, wait_exponential
 
+from crewai import Agent
 from src.consensus import compute_kappa
 from src.models import AgentDiagnosis
 from src.logger import get_logger
 
 logger = get_logger(__name__)
+
+
+def _strip_tools(agent: Agent) -> Agent:
+    """Return a tool-free copy of an agent for use in reflection tasks.
+
+    Passing tools=[] on a Task doesn't stop CrewAI from entering
+    _invoke_loop_native_tools — that path is chosen by the Agent's tool
+    configuration. Creating a new Agent with tools=[] is the only reliable
+    way to keep Gemini out of AFC mode during reflection.
+    """
+    return Agent(
+        role=agent.role,
+        goal=agent.goal,
+        backstory=agent.backstory,
+        llm=agent.llm,
+        tools=[],
+        verbose=agent.verbose,
+        allow_delegation=False,
+    )
 
 MAX_ITER = 3          # Must match the proposal (Section III, Engineering Constraint)
 KAPPA_THRESHOLD = 0.80
@@ -271,10 +291,10 @@ def run_consensus_gate(
                 contradiction = python_diff
 
             d_output = _run_single_task(
-                diagnostician_agent, get_reflection_task, trajectory_json, contradiction
+                _strip_tools(diagnostician_agent), get_reflection_task, trajectory_json, contradiction
             )
             a_output = _run_single_task(
-                auditor_agent, get_reflection_task, trajectory_json, contradiction
+                _strip_tools(auditor_agent), get_reflection_task, trajectory_json, contradiction
             )
 
     final_kappa = compute_kappa(d_output.icd_codes_cited, a_output.icd_codes_cited, all_codes)

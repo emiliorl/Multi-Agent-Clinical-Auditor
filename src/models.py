@@ -1,5 +1,5 @@
 from typing import Literal
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class IcdEntry(BaseModel):
@@ -22,13 +22,23 @@ class PatientTrajectory(BaseModel):
     timeline: list[str]         # Chronologically ordered event labels
 
 
+_MAX_CODES = 15
+
+
 class AgentDiagnosis(BaseModel):
     patient_id: str
     diagnosis_hypothesis: str
-    icd_codes_cited: list[str] = Field(max_length=15)
+    icd_codes_cited: list[str] = Field(default_factory=list)
     evidence_chain: list[str] = Field(
-        max_length=15,
+        default_factory=list,
         description="One entry per cited code — exactly the hadm/admit/type/code/desc template",
     )
     confidence_score: float = Field(ge=0.0, le=1.0)
     unverified_codes: list[str] = Field(default_factory=list, description="Codes that came back stage=failed")
+
+    @field_validator("icd_codes_cited", "evidence_chain", mode="before")
+    @classmethod
+    def _truncate(cls, v: object) -> object:
+        if isinstance(v, list) and len(v) > _MAX_CODES:
+            return v[:_MAX_CODES]
+        return v
