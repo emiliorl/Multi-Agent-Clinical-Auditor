@@ -95,6 +95,13 @@ _AFC_TAGS = ("AFC", "max_remote_calls", "Automatic function calling")
 _TRANSIENT_TAGS = ("429", "RESOURCE_EXHAUSTED", "rate limit", "quota",
                    "503", "UNAVAILABLE", "overloaded")
 
+# Marker emitted by consensus_gate._loop_exhaustion_stub. A patient whose
+# diagnostician or auditor output carries this prefix means CrewAI's ReAct loop
+# exhausted max_iter — the patient still completes (as ESCALATED with κ≈0) so
+# the fold continues, but accumulation of these is a systemic signal that we
+# halt on (same N=3 strikes policy as AFC/transient).
+_LOOP_EXHAUSTION_MARKER = "[AGENT LOOP EXHAUSTION"
+
 
 def classify_exception(exc: BaseException) -> str:
     """Return one of: 'afc', 'transient', 'unknown'.
@@ -109,6 +116,17 @@ def classify_exception(exc: BaseException) -> str:
     if any(t in s for t in _TRANSIENT_TAGS):
         return "transient"
     return "unknown"
+
+
+def _has_loop_exhaustion_stub(*outputs) -> bool:
+    """True if any agent output is a recovery stub from consensus_gate."""
+    for o in outputs:
+        if o is None:
+            continue
+        hyp = getattr(o, "diagnosis_hypothesis", "") or ""
+        if _LOOP_EXHAUSTION_MARKER in hyp:
+            return True
+    return False
 
 
 class HaltRun(Exception):
@@ -204,6 +222,7 @@ def run_patient(patient_id: str, scanner: EHRPatternScanner) -> dict:
 
     total_codes = len(traj.get("icd_codes", []))
 
+    loop_exhaustion = False
     try:
         d_out, a_out, kappa, iterations = run_consensus_gate(
             patient_id=patient_id,
@@ -213,6 +232,7 @@ def run_patient(patient_id: str, scanner: EHRPatternScanner) -> dict:
             manager_agent=manager,
         )
         escalated = False
+        loop_exhaustion = _has_loop_exhaustion_stub(d_out, a_out)
         grounding_table = read_grounding_results_for_patient(patient_id, since=run_start)
         log_consensus(
             patient_id=patient_id,
@@ -226,6 +246,7 @@ def run_patient(patient_id: str, scanner: EHRPatternScanner) -> dict:
         kappa = cf.final_kappa
         iterations = cf.iterations
         escalated = True
+        loop_exhaustion = _has_loop_exhaustion_stub(cf.diagnostician_output, cf.auditor_output)
         log_disagreement(
             patient_id=cf.patient_id,
             final_kappa=cf.final_kappa,
@@ -272,6 +293,7 @@ def run_patient(patient_id: str, scanner: EHRPatternScanner) -> dict:
         "kappa": kappa,
         "iterations": iterations,
         "escalated": escalated,
+        "loop_exhaustion": loop_exhaustion,
         "grounding_accuracy": ga,
         "total_trajectory_codes": total_codes,
         "grounded_codes": grounded,
@@ -533,7 +555,8 @@ def main() -> int:
     try:
         for fold_idx, fold_patients in enumerate(folds):
             logger.info("[Fold %d/%d] %d patients", fold_idx + 1, k, len(fold_patients))
-            fold_afc_strikes = 0  # resets each fold
+            fold_afc_strikes = 0          # AFC + transient failures (raised as exceptions)
+            fold_loop_strikes = 0         # CrewAI max_iter exhaustion (recovered via stub)
 
             for i, pid in enumerate(fold_patients):
                 if pid in completed:
@@ -578,6 +601,25 @@ def main() -> int:
                     status = "ESCALATED" if result["escalated"] else f"κ={result['kappa']:.3f}"
                     ga_str = f"{result['grounding_accuracy']:.2%}" if result["grounding_accuracy"] is not None else "n/a"
                     logger.info("    %s  iter=%d  GA=%s", status, result["iterations"], ga_str)
+
+                    if result.get("loop_exhaustion"):
+                        fold_loop_strikes += 1
+                        logger.warning(
+                            "    LOOP EXHAUSTION recovered via stub — fold strike %d/%d",
+                            fold_loop_strikes, args.afc_strikes,
+                        )
+                        if fold_loop_strikes >= args.afc_strikes:
+                            halt = HaltRun(
+                                pid,
+                                f"{fold_loop_strikes} CrewAI max_iter loop-exhaustion stubs in "
+                                f"fold {fold_idx + 1} — systemic LLM-response issue (was previously "
+                                f"a hard crash; consensus_gate now recovers, but accumulation here "
+                                f"means the model is broken upstream)",
+                                "systemic-loop",
+                            )
+                            sentinel = write_pause_sentinel(run_id, halt, fold_idx, i)
+                            loud_halt_banner(halt, sentinel)
+                            return 1
 
                 if args.delay > 0 and i < len(fold_patients) - 1:
                     time.sleep(args.delay)

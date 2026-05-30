@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import re
 from crewai import Crew, Process
-from tenacity import retry, retry_if_exception, stop_after_attempt, wait_exponential
+from tenacity import retry, retry_if_exception
 
 from crewai import Agent
 from src.consensus import compute_kappa
@@ -36,19 +36,50 @@ def _strip_tools(agent: Agent) -> Agent:
 MAX_ITER = 3          # Must match the proposal (Section III, Engineering Constraint)
 KAPPA_THRESHOLD = 0.80
 
+# Truly transient: network/quota errors that a delayed retry can plausibly fix.
 _TRANSIENT_TAGS = ("429", "RESOURCE_EXHAUSTED", "rate limit", "quota",
-                   "503", "UNAVAILABLE", "overloaded",
-                   "Invalid response from LLM call", "None or empty")
+                   "503", "UNAVAILABLE", "overloaded")
+
+# Deterministic agent-loop failure: CrewAI ran the ReAct loop until max_iter without a
+# final answer. Retrying the same prompt with the same agent state rarely changes the
+# outcome, so we use a quick single retry (cheap stochastic chance from temp>0) and
+# then surface the failure so the recovery stub path can take over.
+_LOOP_EXHAUSTION_TAGS = ("Invalid response from LLM call", "None or empty")
 
 
 def _is_transient(exc: BaseException) -> bool:
     return any(tag in str(exc) for tag in _TRANSIENT_TAGS)
 
 
+def _is_loop_exhaustion(exc: BaseException) -> bool:
+    return any(tag in str(exc) for tag in _LOOP_EXHAUSTION_TAGS)
+
+
+def _is_retryable(exc: BaseException) -> bool:
+    return _is_transient(exc) or _is_loop_exhaustion(exc)
+
+
+def _retry_wait(retry_state) -> float:
+    """Long backoff for true transients (let quotas recover); short for loop exhaustion."""
+    exc = retry_state.outcome.exception() if retry_state.outcome else None
+    if exc is not None and _is_loop_exhaustion(exc):
+        return 2.0
+    # exponential 30 → 60 → 120 for true transients
+    return min(120.0, 30.0 * (2 ** (retry_state.attempt_number - 1)))
+
+
+def _retry_stop(retry_state) -> bool:
+    """One quick retry for loop exhaustion; up to three for true transients."""
+    exc = retry_state.outcome.exception() if retry_state.outcome else None
+    if exc is not None and _is_loop_exhaustion(exc):
+        return retry_state.attempt_number >= 2
+    return retry_state.attempt_number >= 3
+
+
 @retry(
-    retry=retry_if_exception(_is_transient),
-    wait=wait_exponential(multiplier=2, min=30, max=120),
-    stop=stop_after_attempt(3),
+    retry=retry_if_exception(_is_retryable),
+    wait=_retry_wait,
+    stop=_retry_stop,
     reraise=True,
 )
 def _kickoff_with_retry(crew: Crew) -> None:
@@ -174,8 +205,46 @@ def _parse_from_raw(raw: str) -> AgentDiagnosis:
     )
 
 
-def _run_single_task(agent, task_fn, *args, **kwargs) -> AgentDiagnosis:
-    """Run one agent + one task as an isolated single-task crew."""
+def _loop_exhaustion_stub(patient_id: str, task_name: str, exc: BaseException) -> AgentDiagnosis:
+    """Build a low-confidence AgentDiagnosis when the agent ReAct loop exhausts max_iter.
+
+    Returning a stub instead of raising lets the consensus gate continue: κ will be low,
+    triggering reflection; if loop-exhaustion is systemic the gate will eventually raise
+    ConsensusFailure and the patient is recorded as ESCALATED rather than crashing the
+    whole fold. This mirrors the recovery-stub pattern already used by _parse_from_raw
+    Strategy 5 for unparseable raw output.
+    """
+    logger.error(
+        "[_run_single_task] Agent loop exhausted for patient=%s task=%s — returning "
+        "recovery stub (confidence=0.0). Underlying error: %s",
+        patient_id, task_name, exc,
+    )
+    return AgentDiagnosis(
+        patient_id=patient_id,
+        diagnosis_hypothesis=f"[AGENT LOOP EXHAUSTION in {task_name}] Agent failed to emit a final answer within max_iter.",
+        icd_codes_cited=[],
+        evidence_chain=[
+            f"Recovery mode: {task_name} hit CrewAI max_iter without producing a "
+            "structured response. Treat as ESCALATED."
+        ],
+        confidence_score=0.0,
+        unverified_codes=[],
+    )
+
+
+def _run_single_task(
+    agent,
+    task_fn,
+    *args,
+    patient_id: str = "unknown",
+    **kwargs,
+) -> AgentDiagnosis:
+    """Run one agent + one task as an isolated single-task crew.
+
+    patient_id is required for the recovery stub when the agent loop exhausts max_iter.
+    It cannot be inferred from args reliably (different task_fns take different signatures),
+    so callers must supply it explicitly.
+    """
     task = task_fn(agent, *args, **kwargs)
     crew = Crew(
         agents=[agent],
@@ -183,7 +252,12 @@ def _run_single_task(agent, task_fn, *args, **kwargs) -> AgentDiagnosis:
         process=Process.sequential,
         verbose=False,
     )
-    _kickoff_with_retry(crew)
+    try:
+        _kickoff_with_retry(crew)
+    except Exception as exc:
+        if _is_loop_exhaustion(exc):
+            return _loop_exhaustion_stub(patient_id, task_fn.__name__, exc)
+        raise
 
     pydantic_out = task.output.pydantic
     if pydantic_out is None:
@@ -252,10 +326,19 @@ def run_consensus_gate(
     logger.info("[ConsensusGate] Trajectory contains %d unique ICD codes for patient %s", len(all_codes), patient_id)
 
     logger.info("[ConsensusGate] Running initial diagnostician pass for patient %s", patient_id)
-    d_output = _run_single_task(diagnostician_agent, get_mining_task, trajectory_json)
+    # Strip tools from the diagnostician for the mining task: trajectory data is already embedded
+    # in the prompt, so EHRPatternScanner is not needed. Leaving it attached causes Gemini to
+    # enter AFC mode and loop until max_iter (same issue fixed for reflection tasks).
+    d_output = _run_single_task(
+        _strip_tools(diagnostician_agent), get_mining_task, trajectory_json,
+        patient_id=patient_id,
+    )
 
     logger.info("[ConsensusGate] Running initial auditor pass for patient %s", patient_id)
-    a_output = _run_single_task(auditor_agent, get_audit_task, trajectory_json)
+    a_output = _run_single_task(
+        auditor_agent, get_audit_task, trajectory_json,
+        patient_id=patient_id,
+    )
 
     for iteration in range(1, MAX_ITER + 1):
         kappa = compute_kappa(d_output.icd_codes_cited, a_output.icd_codes_cited, all_codes)
@@ -291,10 +374,12 @@ def run_consensus_gate(
                 contradiction = python_diff
 
             d_output = _run_single_task(
-                _strip_tools(diagnostician_agent), get_reflection_task, trajectory_json, contradiction
+                _strip_tools(diagnostician_agent), get_reflection_task, trajectory_json, contradiction,
+                patient_id=patient_id,
             )
             a_output = _run_single_task(
-                _strip_tools(auditor_agent), get_reflection_task, trajectory_json, contradiction
+                _strip_tools(auditor_agent), get_reflection_task, trajectory_json, contradiction,
+                patient_id=patient_id,
             )
 
     final_kappa = compute_kappa(d_output.icd_codes_cited, a_output.icd_codes_cited, all_codes)

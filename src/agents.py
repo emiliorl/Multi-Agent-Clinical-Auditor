@@ -38,6 +38,12 @@ else:
         max_retries=5,
     )
 
+# max_iter: CrewAI default is 25. Our tasks need ≤5 ReAct iterations (perceive → think →
+# [optional tool call → observe] → final answer). Bounding to 8 means a pathological
+# Gemini AFC loop fails after ~30s instead of grinding through 25 iterations, so the
+# recovery path in consensus_gate kicks in quickly rather than wasting tokens and wall time.
+_AGENT_MAX_ITER = 8
+
 # Agent A — receives pre-computed trajectory; EHRPatternScanner kept for fallback use
 diagnostician = Agent(
     role="Lead Clinical Data Miner",
@@ -47,6 +53,7 @@ diagnostician = Agent(
     llm=clinical_llm,
     verbose=True,
     allow_delegation=False,
+    max_iter=_AGENT_MAX_ITER,
 )
 
 # Manager Agent — pure reasoning, no external tools
@@ -62,6 +69,7 @@ manager = Agent(
     llm=clinical_llm,
     verbose=True,
     allow_delegation=False,
+    max_iter=_AGENT_MAX_ITER,
 )
 
 # Agent B — uses batch grounding; one tool call covers all codes
@@ -81,4 +89,5 @@ auditor = Agent(
     llm=clinical_llm,
     verbose=True,
     allow_delegation=False,
+    max_iter=_AGENT_MAX_ITER,
 )

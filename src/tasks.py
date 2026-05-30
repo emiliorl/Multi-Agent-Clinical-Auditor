@@ -118,7 +118,7 @@ def get_audit_task(agent, trajectory_json: str) -> Task:
             "ONLY verified codes directly relevant to the primary hypothesis, not all verified codes), "
             "evidence_chain (list of str), confidence_score (float 0-1), unverified_codes (list of str)."
         ),
-        output_pydantic=_pydantic_output(),
+        output_pydantic=None,
         agent=agent,
     )
 
